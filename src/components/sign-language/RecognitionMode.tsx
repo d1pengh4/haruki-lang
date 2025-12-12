@@ -5,6 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { SignLanguage } from '@/lib/supabaseClient';
+import { calculateFeatureSimilarity } from '@/lib/featureExtraction';
 
 interface RecognitionModeProps {
   currentLandmarks: any;
@@ -26,14 +27,16 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
     const timestamp = Date.now();
     
+    // 이미 특징 추출된 데이터 저장 (정규화 필요 없음)
     motionBufferRef.current.push({
       timestamp,
-      pose: currentLandmarks.pose ? normalizeLandmarksOptimized(currentLandmarks.pose) : null,
-      left_hand: currentLandmarks.leftHand ? normalizeLandmarksOptimized(currentLandmarks.leftHand) : null,
-      right_hand: currentLandmarks.rightHand ? normalizeLandmarksOptimized(currentLandmarks.rightHand) : null,
+      pose: currentLandmarks.pose || null,
+      left_hand: currentLandmarks.leftHand || null,
+      right_hand: currentLandmarks.rightHand || null,
       face: currentLandmarks.face || null,
       left_hand_features: currentLandmarks.leftHandFeatures || null,
-      right_hand_features: currentLandmarks.rightHandFeatures || null
+      right_hand_features: currentLandmarks.rightHandFeatures || null,
+      pose_features: currentLandmarks.poseFeatures || null
     });
 
     const cutoffTime = timestamp - 3000;
@@ -67,7 +70,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
       results.sort((a, b) => b.similarity - a.similarity);
 
-      if (results[0] && results[0].similarity > 65) {
+      // 새로운 특징 기반 매칭은 더 정확하므로 임계값 상향 (70% 이상)
+      if (results[0] && results[0].similarity > 70) {
         setBestMatch(results[0]);
         
         if (recognitionTimeoutRef.current) {
@@ -88,53 +92,10 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     }, 0);
   };
 
-  const normalizeLandmarksOptimized = (landmarks) => {
-    if (!landmarks || landmarks.length === 0) return [];
-    
-    const reference = landmarks[0];
-    const normalized = new Array(landmarks.length);
-    for (let i = 0; i < landmarks.length; i++) {
-      normalized[i] = {
-        x: landmarks[i].x - reference.x,
-        y: landmarks[i].y - reference.y,
-        z: landmarks[i].z - reference.z
-      };
-    }
-    
-    return normalized;
-  };
-
+  // 특징 비교 함수 (코사인 유사도 사용)
   const compareFeaturesOptimized = (features1, features2) => {
     if (!features1 || !features2 || features1.length !== features2.length) return 0;
-    
-    let totalDiff = 0;
-    for (let i = 0; i < features1.length; i++) {
-      totalDiff += Math.abs(features1[i] - features2[i]);
-    }
-    
-    const avgDiff = totalDiff / features1.length;
-    return Math.max(0, 1 - avgDiff * 2);
-  };
-
-  const compareLandmarkSetsOptimized = (set1, set2) => {
-    if (!set1 || !set2 || set1.length !== set2.length) return 0;
-
-    let totalDistance = 0;
-    const step = Math.max(1, Math.floor(set1.length / 10));
-    
-    for (let i = 0; i < set1.length; i += step) {
-      const dx = set1[i].x - set2[i].x;
-      const dy = set1[i].y - set2[i].y;
-      const dz = set1[i].z - set2[i].z;
-      
-      totalDistance += Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    const numPoints = Math.ceil(set1.length / step);
-    const avgDistance = totalDistance / numPoints;
-    const similarity = Math.max(0, 1 - avgDistance * 2);
-    
-    return similarity;
+    return calculateFeatureSimilarity(features1, features2);
   };
 
   const calculateMotionSimilarityOptimized = (buffer, sequence) => {
@@ -175,37 +136,32 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     let totalSim = 0;
     let count = 0;
 
-    if (frame1.left_hand && frame2.left_hand) {
-      const landmarkSim = compareLandmarkSetsOptimized(frame1.left_hand, frame2.left_hand);
-      if (frame1.left_hand_features && frame2.left_hand_features) {
-        const featureSim = compareFeaturesOptimized(frame1.left_hand_features, frame2.left_hand_features);
-        totalSim += (landmarkSim * 0.6 + featureSim * 0.4) * 5;
-      } else {
-        totalSim += landmarkSim * 5;
-      }
-      count += 5;
+    // 왼손 특징 비교 (가중치 10 - 매우 중요)
+    if (frame1.left_hand_features && frame2.left_hand_features) {
+      const featureSim = compareFeaturesOptimized(frame1.left_hand_features, frame2.left_hand_features);
+      totalSim += featureSim * 10;
+      count += 10;
     }
 
-    if (frame1.right_hand && frame2.right_hand) {
-      const landmarkSim = compareLandmarkSetsOptimized(frame1.right_hand, frame2.right_hand);
-      if (frame1.right_hand_features && frame2.right_hand_features) {
-        const featureSim = compareFeaturesOptimized(frame1.right_hand_features, frame2.right_hand_features);
-        totalSim += (landmarkSim * 0.6 + featureSim * 0.4) * 5;
-      } else {
-        totalSim += landmarkSim * 5;
-      }
-      count += 5;
+    // 오른손 특징 비교 (가중치 10 - 매우 중요)
+    if (frame1.right_hand_features && frame2.right_hand_features) {
+      const featureSim = compareFeaturesOptimized(frame1.right_hand_features, frame2.right_hand_features);
+      totalSim += featureSim * 10;
+      count += 10;
     }
 
-    if (frame1.face && frame2.face) {
-      const faceSim = compareLandmarkSetsOptimized(frame1.face, frame2.face);
-      totalSim += faceSim * 2;
+    // 얼굴 특징 비교 (가중치 3)
+    if (frame1.face && frame2.face && Array.isArray(frame1.face) && Array.isArray(frame2.face)) {
+      const faceSim = compareFeaturesOptimized(frame1.face, frame2.face);
+      totalSim += faceSim * 3;
+      count += 3;
+    }
+
+    // 전신 포즈 특징 비교 (가중치 2)
+    if (frame1.pose_features && frame2.pose_features) {
+      const poseSim = compareFeaturesOptimized(frame1.pose_features, frame2.pose_features);
+      totalSim += poseSim * 2;
       count += 2;
-    }
-
-    if (count === 0 && frame1.pose && frame2.pose) {
-      totalSim += compareLandmarkSetsOptimized(frame1.pose, frame2.pose);
-      count += 1;
     }
 
     return count > 0 ? totalSim / count : 0;

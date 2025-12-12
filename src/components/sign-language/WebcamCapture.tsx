@@ -1,88 +1,13 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Card } from "@/components/ui/card";
 import { Camera, CameraOff } from 'lucide-react';
-
-const calculateHandFeatures = (handLandmarks) => {
-  if (!handLandmarks || handLandmarks.length < 21) return null;
-  
-  const features = [];
-  const palmCenter = handLandmarks[0];
-  const fingerTips = [4, 8, 12, 16, 20];
-  
-  fingerTips.forEach(tip => {
-    const dx = handLandmarks[tip].x - palmCenter.x;
-    const dy = handLandmarks[tip].y - palmCenter.y;
-    const dz = handLandmarks[tip].z - palmCenter.z;
-    features.push(Math.sqrt(dx*dx + dy*dy + dz*dz));
-  });
-  
-  const fingerBones = [
-    [1, 2, 3, 4],
-    [5, 6, 7, 8],
-    [9, 10, 11, 12],
-    [13, 14, 15, 16],
-    [17, 18, 19, 20]
-  ];
-  
-  fingerBones.forEach(bones => {
-    for (let i = 0; i < bones.length - 2; i++) {
-      const p1 = handLandmarks[bones[i]];
-      const p2 = handLandmarks[bones[i + 1]];
-      const p3 = handLandmarks[bones[i + 2]];
-      
-      const v1 = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
-      const v2 = { x: p3.x - p2.x, y: p3.y - p2.y, z: p3.z - p2.z };
-      
-      const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
-      const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
-      const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
-      
-      const angle = Math.acos(dot / (len1 * len2));
-      features.push(angle);
-    }
-  });
-  
-  for (let i = 0; i < fingerTips.length; i++) {
-    for (let j = i + 1; j < fingerTips.length; j++) {
-      const p1 = handLandmarks[fingerTips[i]];
-      const p2 = handLandmarks[fingerTips[j]];
-      const dx = p1.x - p2.x;
-      const dy = p1.y - p2.y;
-      const dz = p1.z - p2.z;
-      features.push(Math.sqrt(dx*dx + dy*dy + dz*dz));
-    }
-  }
-  
-  const p0 = handLandmarks[0];
-  const p5 = handLandmarks[5];
-  const p17 = handLandmarks[17];
-  const palmArea = Math.abs(
-    (p5.x - p0.x) * (p17.y - p0.y) - (p17.x - p0.x) * (p5.y - p0.y)
-  ) / 2;
-  features.push(palmArea);
-  
-  return features;
-};
-
-// 얼굴에서 주요 랜드마크 5개 추출 (양쪽 눈, 코, 입 양 끝)
-const extractKeyFaceLandmarks = (faceLandmarks) => {
-  if (!faceLandmarks || faceLandmarks.length < 468) return null;
-  
-  // MediaPipe Face Mesh 주요 포인트
-  const keyIndices = [
-    33,   // 왼쪽 눈 중앙
-    263,  // 오른쪽 눈 중앙
-    1,    // 코 끝
-    61,   // 입 왼쪽 끝
-    291   // 입 오른쪽 끝
-  ];
-  
-  return keyIndices.map(idx => ({
-    x: faceLandmarks[idx].x,
-    y: faceLandmarks[idx].y,
-    z: faceLandmarks[idx].z
-  }));
-};
+import {
+  extractHandFeatures,
+  extractFaceFeatures,
+  extractPoseFeatures,
+  flattenHandFeatures,
+  type Landmark
+} from '@/lib/featureExtraction';
 
 export default function WebcamCapture({ onLandmarksDetected, showLandmarks = true }) {
   const videoRef = useRef(null);
@@ -189,9 +114,15 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const leftHandFeatures = results.leftHandLandmarks ? calculateHandFeatures(results.leftHandLandmarks) : null;
-    const rightHandFeatures = results.rightHandLandmarks ? calculateHandFeatures(results.rightHandLandmarks) : null;
-    const keyFaceLandmarks = results.faceLandmarks ? extractKeyFaceLandmarks(results.faceLandmarks) : null;
+    // 새로운 위치/크기/회전 불변 특징 추출
+    const leftHandFeatureObj = results.leftHandLandmarks ? extractHandFeatures(results.leftHandLandmarks) : null;
+    const rightHandFeatureObj = results.rightHandLandmarks ? extractHandFeatures(results.rightHandLandmarks) : null;
+    const faceFeatures = results.faceLandmarks ? extractFaceFeatures(results.faceLandmarks) : null;
+    const poseFeatures = results.poseLandmarks ? extractPoseFeatures(results.poseLandmarks) : null;
+
+    // 특징을 배열로 변환
+    const leftHandFeatures = leftHandFeatureObj ? flattenHandFeatures(leftHandFeatureObj) : null;
+    const rightHandFeatures = rightHandFeatureObj ? flattenHandFeatures(rightHandFeatureObj) : null;
 
     const detectedLandmarks = {
       pose: results.poseLandmarks || null,
@@ -199,7 +130,8 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
       rightHand: results.rightHandLandmarks || null,
       leftHandFeatures: leftHandFeatures,
       rightHandFeatures: rightHandFeatures,
-      face: keyFaceLandmarks
+      face: faceFeatures,
+      poseFeatures: poseFeatures
     };
 
     if (onLandmarksDetected) {

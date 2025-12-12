@@ -48,15 +48,17 @@ export default function LearningMode({ signs }: LearningModeProps) {
   useEffect(() => {
     if (isRecording && currentLandmarks) {
       const timestamp = Date.now() - startTimeRef.current;
-      
+
+      // 특징 추출 시 이미 위치/크기/회전 불변 정규화됨
       setRecordedSequence(prev => [...prev, {
         timestamp,
-        pose: currentLandmarks.pose ? normalizeLandmarks(currentLandmarks.pose) : null,
-        left_hand: currentLandmarks.leftHand ? normalizeLandmarks(currentLandmarks.leftHand) : null,
-        right_hand: currentLandmarks.rightHand ? normalizeLandmarks(currentLandmarks.rightHand) : null,
+        pose: currentLandmarks.pose || null,
+        left_hand: currentLandmarks.leftHand || null,
+        right_hand: currentLandmarks.rightHand || null,
         face: currentLandmarks.face || null,
         left_hand_features: currentLandmarks.leftHandFeatures || null,
-        right_hand_features: currentLandmarks.rightHandFeatures || null
+        right_hand_features: currentLandmarks.rightHandFeatures || null,
+        pose_features: currentLandmarks.poseFeatures || null
       }]);
     }
   }, [currentLandmarks, isRecording]);
@@ -121,19 +123,6 @@ export default function LearningMode({ signs }: LearningModeProps) {
       duration: duration,
       thumbnail: thumbnailData
     });
-  };
-
-  const normalizeLandmarks = (landmarks) => {
-    if (!landmarks || landmarks.length === 0) return [];
-    
-    const reference = landmarks[0];
-    
-    return landmarks.map(landmark => ({
-      x: landmark.x - reference.x,
-      y: landmark.y - reference.y,
-      z: landmark.z - reference.z,
-      visibility: landmark.visibility
-    }));
   };
 
   const hasDetection = currentLandmarks && (currentLandmarks.pose || currentLandmarks.leftHand || currentLandmarks.rightHand);
