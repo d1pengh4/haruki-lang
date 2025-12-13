@@ -78,9 +78,9 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
     const hipY = (leftHip.y + rightHip.y) / 2;
 
-    // 상체 길이를 고려한 동적 임계값 (엉덩이와 어깨 사이 60% 지점)
+    // 상체 길이를 고려한 동적 임계값 (엉덩이와 어깨 사이 50% 지점으로 완화)
     const torsoLength = hipY - shoulderY;
-    const neutralThreshold = shoulderY + (torsoLength * 0.6);
+    const neutralThreshold = shoulderY + (torsoLength * 0.5);
 
     let allHandsBelow = true;
 
@@ -88,8 +88,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       const leftWrist = landmarks.leftHand[0];
       const visibility = leftWrist.visibility !== undefined ? leftWrist.visibility : 1.0;
 
-      // 가시성이 낮거나(0.3 이하) 손목이 임계값보다 위에 있으면 중립 포즈 아님
-      if (visibility < 0.3 || leftWrist.y <= neutralThreshold) {
+      // 가시성이 낮거나(0.5 이하로 완화) 손목이 임계값보다 위에 있으면 중립 포즈 아님
+      if (visibility < 0.5 || leftWrist.y <= neutralThreshold) {
         allHandsBelow = false;
       }
     }
@@ -98,7 +98,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       const rightWrist = landmarks.rightHand[0];
       const visibility = rightWrist.visibility !== undefined ? rightWrist.visibility : 1.0;
 
-      if (visibility < 0.3 || rightWrist.y <= neutralThreshold) {
+      if (visibility < 0.5 || rightWrist.y <= neutralThreshold) {
         allHandsBelow = false;
       }
     }
@@ -156,8 +156,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       if (isNeutral) {
         neutralPoseCountRef.current++;
 
-        // 중립 포즈가 연속으로 4프레임 이상 감지되면 (약 1.2초) - 안정성 향상
-        if (neutralPoseCountRef.current >= 4 && currentRecognizedSignRef.current) {
+        // 중립 포즈가 연속으로 3프레임 이상 감지되면 (약 0.9초) - 반응성 개선
+        if (neutralPoseCountRef.current >= 3 && currentRecognizedSignRef.current) {
           // 현재 인식 중인 수화를 문장에 추가
           const signToAdd = currentRecognizedSignRef.current;
           if (lastRecognizedId !== signToAdd.sign.id) {
