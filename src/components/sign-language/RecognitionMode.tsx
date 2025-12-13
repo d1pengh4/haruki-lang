@@ -22,6 +22,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
   const processingRef = useRef(false);
   const recognitionTimeoutRef = useRef(null);
   const consecutiveRecognitionRef = useRef({ signId: null, count: 0, lastTime: 0 });
+  const currentRecognizedSignRef = useRef(null); // 현재 인식 중인 수화 저장
+  const neutralPoseCountRef = useRef(0); // 중립 포즈 연속 감지 횟수
 
   useEffect(() => {
     if (!currentLandmarks || !signs || signs.length === 0) return;
@@ -51,6 +53,47 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       analyzeMotion();
     }
   }, [currentLandmarks, signs]);
+
+  // 중립 포즈 감지 (손을 내린 상태)
+  const isNeutralPose = (landmarks) => {
+    if (!landmarks) return false;
+
+    // 손이 감지되지 않으면 중립 포즈로 간주
+    const hasLeftHand = landmarks.leftHand && landmarks.leftHand.length > 0;
+    const hasRightHand = landmarks.rightHand && landmarks.rightHand.length > 0;
+
+    // 양손이 모두 감지되지 않으면 중립 포즈
+    if (!hasLeftHand && !hasRightHand) return true;
+
+    // 포즈 랜드마크가 있어야 어깨 위치 확인 가능
+    if (!landmarks.pose || landmarks.pose.length < 33) return false;
+
+    const leftShoulder = landmarks.pose[11]; // 왼쪽 어깨
+    const rightShoulder = landmarks.pose[12]; // 오른쪽 어깨
+    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2; // 어깨 평균 y 좌표
+
+    // MediaPipe 좌표계: y가 클수록 아래쪽 (0.0 = 위, 1.0 = 아래)
+    // 손목이 어깨보다 아래에 있으면 중립 포즈 (손을 내린 상태)
+    let allHandsBelow = true;
+
+    if (hasLeftHand) {
+      const leftWrist = landmarks.leftHand[0]; // 왼손 손목
+      // 손목 y가 어깨 y보다 크면 손이 아래에 있음
+      if (leftWrist.y <= shoulderY + 0.05) {
+        allHandsBelow = false; // 손이 위에 있음 = 수화 수행 중
+      }
+    }
+
+    if (hasRightHand) {
+      const rightWrist = landmarks.rightHand[0]; // 오른손 손목
+      if (rightWrist.y <= shoulderY + 0.05) {
+        allHandsBelow = false; // 손이 위에 있음 = 수화 수행 중
+      }
+    }
+
+    // 양손이 모두 어깨 아래에 있으면 중립 포즈
+    return allHandsBelow;
+  };
 
   // 움직임 변화량 계산 (정적 상태 감지)
   const calculateMotionVariance = (buffer) => {
@@ -90,6 +133,40 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     setTimeout(() => {
       processingRef.current = true;
       
+      // 현재 프레임의 중립 포즈 확인
+      const latestFrame = motionBufferRef.current[motionBufferRef.current.length - 1];
+      const isNeutral = isNeutralPose({
+        leftHand: latestFrame?.left_hand,
+        rightHand: latestFrame?.right_hand,
+        pose: latestFrame?.pose
+      });
+
+      // 중립 포즈가 감지되면
+      if (isNeutral) {
+        neutralPoseCountRef.current++;
+        
+        // 중립 포즈가 연속으로 3프레임 이상 감지되면 (약 0.9초)
+        if (neutralPoseCountRef.current >= 3 && currentRecognizedSignRef.current) {
+          // 현재 인식 중인 수화를 문장에 추가
+          const signToAdd = currentRecognizedSignRef.current;
+          if (lastRecognizedId !== signToAdd.sign.id) {
+            setRecognizedWords(prev => [...prev, signToAdd.sign.name]);
+            setLastRecognizedId(signToAdd.sign.id);
+          }
+          
+          // 상태 리셋
+          currentRecognizedSignRef.current = null;
+          setBestMatch(null);
+          consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
+          neutralPoseCountRef.current = 0;
+          processingRef.current = false;
+          return;
+        }
+      } else {
+        // 중립 포즈가 아니면 카운트 리셋
+        neutralPoseCountRef.current = 0;
+      }
+      
       // 움직임 변화량 확인 (정적 상태 감지) - 임계값을 낮춰 더 민감하게 감지
       const motionVariance = calculateMotionVariance(motionBufferRef.current);
       const hasSignificantMotion = motionVariance > 0.005; // 임계값 낮춤: 더 작은 움직임도 감지
@@ -98,6 +175,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       if (!hasSignificantMotion && motionBufferRef.current.length > 15) {
         // 움직임이 거의 없으면 인식하지 않음
         setBestMatch(null);
+        currentRecognizedSignRef.current = null;
         consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
         processingRef.current = false;
         return;
@@ -137,38 +215,21 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
         setBestMatch(bestResult);
         
-        // 연속으로 2번 이상 인식되고, 다른 수화로 바뀐 경우에만 추가 (더 빠른 반응)
-        const isDifferentSign = lastRecognizedId !== bestResult.sign.id;
+        // 연속으로 2번 이상 인식되면 현재 인식 중인 수화로 저장
+        // (중립 포즈가 감지되면 문장에 추가됨)
         const isConsecutiveEnough = consecutiveRecognitionRef.current.count >= 2;
         
-        if (isDifferentSign && isConsecutiveEnough) {
-          // 이전 타이머 취소
-          if (recognitionTimeoutRef.current) {
-            clearTimeout(recognitionTimeoutRef.current);
-          }
-          
-          // 높은 유사도일 때는 더 빠르게 추가
-          const isHighConfidence = bestResult.similarity >= 90;
-          const delay = isHighConfidence ? 100 : 200;
-          
-          recognitionTimeoutRef.current = setTimeout(() => {
-            // 다시 한 번 확인 (사용자가 다른 수화로 바꿨을 수 있음)
-            if (lastRecognizedId !== bestResult.sign.id && 
-                consecutiveRecognitionRef.current.signId === bestResult.sign.id &&
-                consecutiveRecognitionRef.current.count >= 2) {
-              setRecognizedWords(prev => [...prev, bestResult.sign.name]);
-              setLastRecognizedId(bestResult.sign.id);
-              // 추가 후 카운트 리셋
-              consecutiveRecognitionRef.current.count = 0;
-            }
-          }, delay);
+        if (isConsecutiveEnough) {
+          // 현재 인식 중인 수화로 저장 (중립 포즈 감지 시 사용)
+          currentRecognizedSignRef.current = bestResult;
         }
       } else {
         setBestMatch(null);
-        // 임계값 미만이면 연속 인식 리셋
+        // 임계값 미만이면 현재 인식 중인 수화도 리셋
         if (consecutiveRecognitionRef.current.lastTime > 0 && 
             Date.now() - consecutiveRecognitionRef.current.lastTime > 1000) {
           consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
+          currentRecognizedSignRef.current = null;
         }
       }
 
