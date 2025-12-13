@@ -173,6 +173,11 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
           processingRef.current = false;
           return;
         }
+
+        // 중립 포즈일 때는 새로운 수화 인식 차단
+        setBestMatch(null);
+        processingRef.current = false;
+        return;
       } else {
         // 중립 포즈가 아니면 카운트 리셋
         neutralPoseCountRef.current = 0;
