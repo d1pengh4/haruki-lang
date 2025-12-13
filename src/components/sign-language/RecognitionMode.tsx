@@ -47,8 +47,9 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
     setMotionBuffer(motionBufferRef.current);
 
-    // 더 자주 분석하여 동작을 빠르게 캡쳐 (300ms 주기, 최소 3프레임)
-    if (timestamp - lastAnalysisRef.current > 300 && motionBufferRef.current.length >= 3) {
+    // 더 자주 분석하여 동작을 빠르게 캡쳐 (300ms 주기, 최소 15프레임)
+    // 초기 로딩 시 충분한 데이터 확보 후 분석 시작
+    if (timestamp - lastAnalysisRef.current > 300 && motionBufferRef.current.length >= 15) {
       lastAnalysisRef.current = timestamp;
       analyzeMotion();
     }
@@ -177,12 +178,22 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         neutralPoseCountRef.current = 0;
       }
       
-      // 움직임 변화량 확인 (정적 상태 감지) - 임계값을 낮춰 더 민감하게 감지
-      const motionVariance = calculateMotionVariance(motionBufferRef.current);
-      const hasSignificantMotion = motionVariance > 0.005; // 임계값 낮춤: 더 작은 움직임도 감지
+      // 버퍼 최소 요구사항 체크 (초기 노이즈 방지)
+      if (motionBufferRef.current.length < 15) {
+        // 데이터가 충분하지 않으면 인식하지 않음
+        setBestMatch(null);
+        currentRecognizedSignRef.current = null;
+        consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
+        processingRef.current = false;
+        return;
+      }
 
-      // 정적 상태 감지 조건 완화 (더 많은 프레임 필요)
-      if (!hasSignificantMotion && motionBufferRef.current.length > 15) {
+      // 움직임 변화량 확인 (정적 상태 감지)
+      const motionVariance = calculateMotionVariance(motionBufferRef.current);
+      const hasSignificantMotion = motionVariance > 0.008; // 임계값: 명확한 움직임만 감지
+
+      // 정적 상태면 인식하지 않음
+      if (!hasSignificantMotion) {
         // 움직임이 거의 없으면 인식하지 않음
         setBestMatch(null);
         currentRecognizedSignRef.current = null;
