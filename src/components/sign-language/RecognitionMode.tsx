@@ -54,7 +54,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     }
   }, [currentLandmarks, signs]);
 
-  // 중립 포즈 감지 (손을 내린 상태)
+  // 중립 포즈 감지 (손을 내린 상태) - 개선된 버전
   const isNeutralPose = (landmarks) => {
     if (!landmarks) return false;
 
@@ -65,33 +65,43 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     // 양손이 모두 감지되지 않으면 중립 포즈
     if (!hasLeftHand && !hasRightHand) return true;
 
-    // 포즈 랜드마크가 있어야 어깨 위치 확인 가능
+    // 포즈 랜드마크가 있어야 기준점 확인 가능
     if (!landmarks.pose || landmarks.pose.length < 33) return false;
 
     const leftShoulder = landmarks.pose[11]; // 왼쪽 어깨
     const rightShoulder = landmarks.pose[12]; // 오른쪽 어깨
-    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2; // 어깨 평균 y 좌표
+    const leftHip = landmarks.pose[23]; // 왼쪽 엉덩이
+    const rightHip = landmarks.pose[24]; // 오른쪽 엉덩이
 
     // MediaPipe 좌표계: y가 클수록 아래쪽 (0.0 = 위, 1.0 = 아래)
-    // 손목이 어깨보다 아래에 있으면 중립 포즈 (손을 내린 상태)
+    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+    const hipY = (leftHip.y + rightHip.y) / 2;
+
+    // 상체 길이를 고려한 동적 임계값 (엉덩이와 어깨 사이 60% 지점)
+    const torsoLength = hipY - shoulderY;
+    const neutralThreshold = shoulderY + (torsoLength * 0.6);
+
     let allHandsBelow = true;
 
     if (hasLeftHand) {
-      const leftWrist = landmarks.leftHand[0]; // 왼손 손목
-      // 손목 y가 어깨 y보다 크면 손이 아래에 있음
-      if (leftWrist.y <= shoulderY + 0.05) {
-        allHandsBelow = false; // 손이 위에 있음 = 수화 수행 중
+      const leftWrist = landmarks.leftHand[0];
+      const visibility = leftWrist.visibility !== undefined ? leftWrist.visibility : 1.0;
+
+      // 가시성이 낮거나(0.3 이하) 손목이 임계값보다 위에 있으면 중립 포즈 아님
+      if (visibility < 0.3 || leftWrist.y <= neutralThreshold) {
+        allHandsBelow = false;
       }
     }
 
     if (hasRightHand) {
-      const rightWrist = landmarks.rightHand[0]; // 오른손 손목
-      if (rightWrist.y <= shoulderY + 0.05) {
-        allHandsBelow = false; // 손이 위에 있음 = 수화 수행 중
+      const rightWrist = landmarks.rightHand[0];
+      const visibility = rightWrist.visibility !== undefined ? rightWrist.visibility : 1.0;
+
+      if (visibility < 0.3 || rightWrist.y <= neutralThreshold) {
+        allHandsBelow = false;
       }
     }
 
-    // 양손이 모두 어깨 아래에 있으면 중립 포즈
     return allHandsBelow;
   };
 
@@ -144,16 +154,16 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       // 중립 포즈가 감지되면
       if (isNeutral) {
         neutralPoseCountRef.current++;
-        
-        // 중립 포즈가 연속으로 3프레임 이상 감지되면 (약 0.9초)
-        if (neutralPoseCountRef.current >= 3 && currentRecognizedSignRef.current) {
+
+        // 중립 포즈가 연속으로 4프레임 이상 감지되면 (약 1.2초) - 안정성 향상
+        if (neutralPoseCountRef.current >= 4 && currentRecognizedSignRef.current) {
           // 현재 인식 중인 수화를 문장에 추가
           const signToAdd = currentRecognizedSignRef.current;
           if (lastRecognizedId !== signToAdd.sign.id) {
             setRecognizedWords(prev => [...prev, signToAdd.sign.name]);
             setLastRecognizedId(signToAdd.sign.id);
           }
-          
+
           // 상태 리셋
           currentRecognizedSignRef.current = null;
           setBestMatch(null);
