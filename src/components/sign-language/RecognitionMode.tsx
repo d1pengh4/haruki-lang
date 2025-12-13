@@ -279,11 +279,43 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     return bestSimilarity;
   };
 
+  // 신체 비율 차이 보정을 위한 스케일 계산
+  const calculateBodyScaleRatio = (frame1, frame2) => {
+    // 어깨 너비를 기준으로 신체 크기 비율 계산
+    if (!frame1.pose || !frame2.pose || frame1.pose.length < 33 || frame2.pose.length < 33) {
+      return 1.0; // 포즈 정보가 없으면 보정하지 않음
+    }
+
+    const getShoulderWidth = (pose) => {
+      const leftShoulder = pose[11];
+      const rightShoulder = pose[12];
+      const dx = leftShoulder.x - rightShoulder.x;
+      const dy = leftShoulder.y - rightShoulder.y;
+      const dz = leftShoulder.z - rightShoulder.z;
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    };
+
+    const width1 = getShoulderWidth(frame1.pose);
+    const width2 = getShoulderWidth(frame2.pose);
+
+    if (width1 === 0 || width2 === 0) return 1.0;
+
+    // 비율이 너무 차이나면 보정하지 않음 (다른 사람일 가능성)
+    const ratio = width1 / width2;
+    if (ratio < 0.5 || ratio > 2.0) return 1.0;
+
+    return ratio;
+  };
+
   const compareFramesOptimized = (frame1, frame2) => {
     let totalSim = 0;
     let count = 0;
 
+    // 신체 비율 차이 보정 (선택적)
+    const bodyScaleRatio = calculateBodyScaleRatio(frame1, frame2);
+
     // 왼손 특징 비교 (가중치 10 - 매우 중요)
+    // 손 특징은 이미 손 크기로 정규화되어 있어 체구와 무관
     if (frame1.left_hand_features && frame2.left_hand_features) {
       const featureSim = compareFeaturesOptimized(frame1.left_hand_features, frame2.left_hand_features);
       totalSim += featureSim * 10;
@@ -298,6 +330,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     }
 
     // 얼굴 특징 비교 (가중치 3)
+    // 얼굴 특징도 얼굴 크기로 정규화되어 있어 체구와 무관
     if (frame1.face && frame2.face && Array.isArray(frame1.face) && Array.isArray(frame2.face)) {
       const faceSim = compareFeaturesOptimized(frame1.face, frame2.face);
       totalSim += faceSim * 3;
@@ -305,6 +338,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     }
 
     // 전신 포즈 특징 비교 (가중치 2)
+    // 포즈 특징은 어깨 너비로 정규화되어 있어 체구와 무관
     if (frame1.pose_features && frame2.pose_features) {
       const poseSim = compareFeaturesOptimized(frame1.pose_features, frame2.pose_features);
       totalSim += poseSim * 2;

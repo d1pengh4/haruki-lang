@@ -142,9 +142,20 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
     // 비디오 프레임 그리기
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-    // 새로운 위치/크기/회전 불변 특징 추출
-    const leftHandFeatureObj = results.leftHandLandmarks ? extractHandFeatures(results.leftHandLandmarks) : null;
-    const rightHandFeatureObj = results.rightHandLandmarks ? extractHandFeatures(results.rightHandLandmarks) : null;
+    // 신체 크기 기준값 계산 (어깨 너비)
+    let bodyScale = null;
+    if (results.poseLandmarks && results.poseLandmarks.length >= 33) {
+      const leftShoulder = results.poseLandmarks[11];
+      const rightShoulder = results.poseLandmarks[12];
+      const dx = leftShoulder.x - rightShoulder.x;
+      const dy = leftShoulder.y - rightShoulder.y;
+      const dz = leftShoulder.z - rightShoulder.z;
+      bodyScale = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    // 새로운 위치/크기/회전 불변 특징 추출 (신체 크기 기준값 포함)
+    const leftHandFeatureObj = results.leftHandLandmarks ? extractHandFeatures(results.leftHandLandmarks, bodyScale) : null;
+    const rightHandFeatureObj = results.rightHandLandmarks ? extractHandFeatures(results.rightHandLandmarks, bodyScale) : null;
     const faceFeatures = results.faceLandmarks ? extractFaceFeatures(results.faceLandmarks) : null;
     const poseFeatures = results.poseLandmarks ? extractPoseFeatures(results.poseLandmarks) : null;
 

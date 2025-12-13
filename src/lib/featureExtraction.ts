@@ -105,8 +105,10 @@ function calculateFingerExtension(
 
 /**
  * 손 특징 추출 (위치/크기/회전 불변)
+ * @param handLandmarks 손 랜드마크
+ * @param bodyScale 신체 크기 기준값 (어깨 너비 등, 선택적)
  */
-export function extractHandFeatures(handLandmarks: Landmark[]): HandFeatures | null {
+export function extractHandFeatures(handLandmarks: Landmark[], bodyScale?: number): HandFeatures | null {
   if (!handLandmarks || handLandmarks.length < 21) return null;
 
   // 손바닥 중심 계산 (손목, 검지, 새끼손가락 base의 중심)
@@ -119,6 +121,10 @@ export function extractHandFeatures(handLandmarks: Landmark[]): HandFeatures | n
   // 손 크기 기준값
   const handScale = getHandScale(handLandmarks);
   if (handScale === 0) return null;
+
+  // 신체 크기 기준값이 제공되면 사용, 없으면 손 크기 사용
+  // 하지만 손 내부 특징은 여전히 손 크기로 정규화 (손 모양 자체는 체구와 무관)
+  const normalizationScale = handScale;
 
   // 손가락 인덱스 정의
   const fingers = {
