@@ -21,10 +21,18 @@ export default function SignLanguageApp() {
   const [currentLandmarks, setCurrentLandmarks] = useState(null);
   const queryClient = useQueryClient();
 
-  const { data: signs = [], isLoading } = useQuery({
+  const { data: signs = [], isLoading, error } = useQuery({
     queryKey: ['signs'],
-    queryFn: () => base44.entities.SignLanguage.list('-created_at'),
-    initialData: [],
+    queryFn: async () => {
+      console.log('수화 데이터 로딩 시작...');
+      const data = await base44.entities.SignLanguage.list('-created_at');
+      console.log('수화 데이터 로딩 완료:', data.length, '개');
+      return data;
+    },
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    staleTime: 0, // 항상 최신 데이터 가져오기
+    retry: 2,
   });
 
   const deleteMutation = useMutation({
@@ -98,7 +106,18 @@ export default function SignLanguageApp() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {signs.length === 0 ? (
+              {isLoading ? (
+                <div className="text-center py-12 text-gray-500">
+                  <Hand className="w-16 h-16 mx-auto mb-4 opacity-30 animate-pulse" />
+                  <p>수화 데이터를 불러오는 중...</p>
+                </div>
+              ) : error ? (
+                <div className="text-center py-12 text-red-500">
+                  <Hand className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                  <p>데이터를 불러오는 중 오류가 발생했습니다.</p>
+                  <p className="text-sm mt-2">{error.message}</p>
+                </div>
+              ) : signs.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Hand className="w-16 h-16 mx-auto mb-4 opacity-30" />
                   <p>아직 저장된 수화가 없습니다.</p>

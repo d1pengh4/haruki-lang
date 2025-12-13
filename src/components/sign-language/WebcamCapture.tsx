@@ -20,7 +20,8 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
 
   useEffect(() => {
     let mounted = true;
-    let animationId = null;
+    let holisticInstance = null;
+    let cameraInstance = null;
 
     const loadMediaPipe = async () => {
       try {
@@ -32,7 +33,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
 
         if (!mounted) return;
 
-        const holisticInstance = new window.Holistic({
+        holisticInstance = new window.Holistic({
           locateFile: (file) => {
             return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
           }
@@ -51,10 +52,14 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
         holisticInstance.onResults(onResults);
 
         if (videoRef.current) {
-          const cameraInstance = new window.Camera(videoRef.current, {
+          cameraInstance = new window.Camera(videoRef.current, {
             onFrame: async () => {
-              if (videoRef.current && mounted) {
-                await holisticInstance.send({ image: videoRef.current });
+              if (videoRef.current && mounted && holisticInstance) {
+                try {
+                  await holisticInstance.send({ image: videoRef.current });
+                } catch (err) {
+                  console.error('Holistic send error:', err);
+                }
               }
             },
             width: 640,
@@ -62,12 +67,16 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
           });
           
           await cameraInstance.start();
-          setIsLoading(false);
+          if (mounted) {
+            setIsLoading(false);
+          }
         }
       } catch (err) {
         console.error('MediaPipe 로딩 오류:', err);
-        setError('카메라를 시작할 수 없습니다.');
-        setIsLoading(false);
+        if (mounted) {
+          setError('카메라를 시작할 수 없습니다.');
+          setIsLoading(false);
+        }
       }
     };
 
@@ -75,8 +84,19 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
 
     return () => {
       mounted = false;
-      if (animationId) {
-        cancelAnimationFrame(animationId);
+      if (cameraInstance) {
+        try {
+          cameraInstance.stop();
+        } catch (err) {
+          console.error('Camera stop error:', err);
+        }
+      }
+      if (holisticInstance) {
+        try {
+          holisticInstance.close();
+        } catch (err) {
+          console.error('Holistic close error:', err);
+        }
       }
     };
   }, []);
@@ -104,15 +124,23 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
       lastTimeRef.current = now;
     }
 
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !videoRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    
+    // 비디오가 준비되었는지 확인
+    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+      return;
+    }
     
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 비디오 프레임 그리기
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
     // 새로운 위치/크기/회전 불변 특징 추출
     const leftHandFeatureObj = results.leftHandLandmarks ? extractHandFeatures(results.leftHandLandmarks) : null;
@@ -125,6 +153,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
     const rightHandFeatures = rightHandFeatureObj ? flattenHandFeatures(rightHandFeatureObj) : null;
 
     const detectedLandmarks = {
+      timestamp: Date.now(),
       pose: results.poseLandmarks || null,
       leftHand: results.leftHandLandmarks || null,
       rightHand: results.rightHandLandmarks || null,
@@ -196,16 +225,21 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
         });
       }
 
-      // 얼굴 주요 랜드마크 그리기
-      if (keyFaceLandmarks) {
-        keyFaceLandmarks.forEach((landmark, idx) => {
-          ctx.beginPath();
-          ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 4, 0, 2 * Math.PI);
-          ctx.fillStyle = '#FFA500';
-          ctx.fill();
-          ctx.strokeStyle = '#FFFFFF';
-          ctx.lineWidth = 1;
-          ctx.stroke();
+      // 얼굴 주요 랜드마크 그리기 (주요 포인트만)
+      if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+        // 주요 얼굴 포인트 인덱스: 왼쪽 눈, 오른쪽 눈, 코, 입 왼쪽, 입 오른쪽
+        const keyFaceIndices = [33, 263, 1, 61, 291];
+        keyFaceIndices.forEach((idx) => {
+          if (results.faceLandmarks[idx]) {
+            const landmark = results.faceLandmarks[idx];
+            ctx.beginPath();
+            ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = '#FFA500';
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
         });
       }
 

@@ -9,8 +9,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: 1,
-      staleTime: 1000 * 60 * 5, // 5분
+      refetchOnMount: true, // 컴포넌트 마운트 시 항상 데이터 가져오기
+      retry: 2,
+      staleTime: 0, // 항상 최신 데이터로 간주하여 가져오기
     },
   },
 })
