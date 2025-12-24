@@ -20,9 +20,9 @@ export default function VideoProcessor({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const holisticRef = useRef<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [recordedSequence, setRecordedSequence] = useState<any[]>([]);
-  const recordedSequenceRef = useRef<any[]>([]); // state와 동기화할 ref
+  const landmarkSequenceRef = useRef<any[]>([]);
 
+  // 비디오 파일 로드
   useEffect(() => {
     if (!videoFile) return;
 
@@ -36,8 +36,8 @@ export default function VideoProcessor({
     };
   }, [videoFile]);
 
+  // MediaPipe Holistic 초기화 (WebcamCapture와 완전히 동일한 설정)
   useEffect(() => {
-    // MediaPipe Holistic 초기화
     if (window.Holistic) {
       holisticRef.current = new window.Holistic({
         locateFile: (file: string) => {
@@ -45,6 +45,7 @@ export default function VideoProcessor({
         }
       });
 
+      // WebcamCapture와 동일한 옵션
       holisticRef.current.setOptions({
         modelComplexity: 0,
         smoothLandmarks: true,
@@ -53,10 +54,6 @@ export default function VideoProcessor({
         refineFaceLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
-      });
-
-      holisticRef.current.onResults((results: any) => {
-        handleResults(results);
       });
     }
 
@@ -67,76 +64,129 @@ export default function VideoProcessor({
     };
   }, []);
 
-  const handleResults = (results: any) => {
-    // 신체 크기 기준값 계산 (어깨 너비) - WebcamCapture와 동일
-    let bodyScale = null;
-    if (results.poseLandmarks && results.poseLandmarks.length >= 33) {
-      const leftShoulder = results.poseLandmarks[11];
-      const rightShoulder = results.poseLandmarks[12];
-      const dx = leftShoulder.x - rightShoulder.x;
-      const dy = leftShoulder.y - rightShoulder.y;
-      const dz = leftShoulder.z - rightShoulder.z;
-      bodyScale = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    }
-
-    // WebcamCapture와 동일하게 bodyScale을 전달
-    const leftHandFeaturesObj = results.leftHandLandmarks
-      ? extractHandFeatures(results.leftHandLandmarks, bodyScale)
-      : null;
-    const rightHandFeaturesObj = results.rightHandLandmarks
-      ? extractHandFeatures(results.rightHandLandmarks, bodyScale)
-      : null;
-    const poseFeatures = results.poseLandmarks
-      ? extractPoseFeatures(results.poseLandmarks)
-      : null;
-
-    // 특징 객체를 배열로 평탄화
-    const leftHandFeatures = leftHandFeaturesObj ? flattenHandFeatures(leftHandFeaturesObj) : null;
-    const rightHandFeatures = rightHandFeaturesObj ? flattenHandFeatures(rightHandFeaturesObj) : null;
-
-    const timestamp = videoRef.current?.currentTime || 0;
-
-    const landmarkData = {
-      timestamp: timestamp * 1000,
-      pose: results.poseLandmarks || null,
-      left_hand: results.leftHandLandmarks || null,
-      right_hand: results.rightHandLandmarks || null,
-      face: results.faceLandmarks || null,
-      left_hand_features: leftHandFeatures,
-      right_hand_features: rightHandFeatures,
-      pose_features: poseFeatures
-    };
-
-    // 디버깅: 손 감지 확인
-    if (!leftHandFeatures && !rightHandFeatures) {
-      console.warn(`⚠️  프레임 ${timestamp.toFixed(2)}s: 손이 감지되지 않음`);
-    } else {
-      console.log(`✓ 프레임 ${timestamp.toFixed(2)}s: 왼손=${leftHandFeatures ? '✓' : '✗'}, 오른손=${rightHandFeatures ? '✓' : '✗'}`);
-    }
-
-    // ref에도 저장 (state는 비동기이므로 processVideo에서 사용 불가)
-    recordedSequenceRef.current.push(landmarkData);
-    setRecordedSequence(prev => [...prev, landmarkData]);
-
-    // Canvas에 그리기
-    if (canvasRef.current && videoRef.current) {
-      const canvasCtx = canvasRef.current.getContext('2d');
-      if (canvasCtx) {
-        canvasRef.current.width = videoRef.current.videoWidth;
-        canvasRef.current.height = videoRef.current.videoHeight;
-
-        canvasCtx.save();
-        canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        canvasCtx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-
-        // 랜드마크 그리기
-        drawLandmarks(canvasCtx, results);
-
-        canvasCtx.restore();
+  // 프레임 처리 - WebcamCapture의 onResults와 완전히 동일
+  const processFrame = async (video: HTMLVideoElement): Promise<any> => {
+    return new Promise((resolve) => {
+      if (!holisticRef.current || !video) {
+        resolve(null);
+        return;
       }
-    }
+
+      // 일회성 결과 핸들러
+      const handleResults = (results: any) => {
+        // WebcamCapture와 동일: 신체 크기 기준값 계산 (어깨 너비)
+        let bodyScale = null;
+        if (results.poseLandmarks && results.poseLandmarks.length >= 33) {
+          const leftShoulder = results.poseLandmarks[11];
+          const rightShoulder = results.poseLandmarks[12];
+          const dx = leftShoulder.x - rightShoulder.x;
+          const dy = leftShoulder.y - rightShoulder.y;
+          const dz = leftShoulder.z - rightShoulder.z;
+          bodyScale = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        // WebcamCapture와 동일: bodyScale을 전달하여 특징 추출
+        const leftHandFeatureObj = results.leftHandLandmarks
+          ? extractHandFeatures(results.leftHandLandmarks, bodyScale)
+          : null;
+        const rightHandFeatureObj = results.rightHandLandmarks
+          ? extractHandFeatures(results.rightHandLandmarks, bodyScale)
+          : null;
+        const poseFeatures = results.poseLandmarks
+          ? extractPoseFeatures(results.poseLandmarks)
+          : null;
+
+        // WebcamCapture와 동일: 특징을 배열로 변환
+        const leftHandFeatures = leftHandFeatureObj ? flattenHandFeatures(leftHandFeatureObj) : null;
+        const rightHandFeatures = rightHandFeatureObj ? flattenHandFeatures(rightHandFeatureObj) : null;
+
+        // WebcamCapture와 동일한 데이터 구조 (단, face는 주요 포인트만)
+        const landmarkData = {
+          timestamp: video.currentTime * 1000, // 밀리초
+          pose: results.poseLandmarks || null,
+          left_hand: results.leftHandLandmarks || null,
+          right_hand: results.rightHandLandmarks || null,
+          face: results.faceLandmarks || null,
+          left_hand_features: leftHandFeatures,
+          right_hand_features: rightHandFeatures,
+          pose_features: poseFeatures
+        };
+
+        resolve(landmarkData);
+      };
+
+      holisticRef.current.onResults = handleResults;
+      holisticRef.current.send({ image: video });
+    });
   };
 
+  // 비디오 전체 처리
+  const processVideo = async () => {
+    if (!videoRef.current || !holisticRef.current) {
+      onError('비디오 또는 MediaPipe 초기화 실패');
+      return;
+    }
+
+    setIsProcessing(true);
+    landmarkSequenceRef.current = [];
+
+    const video = videoRef.current;
+    const duration = video.duration;
+    const fps = 10; // 초당 10프레임 (WebcamCapture는 실시간이지만 비디오는 샘플링)
+    const interval = 1 / fps;
+
+    let currentTime = 0;
+    const sequence: any[] = [];
+
+    console.log(`📹 비디오 처리 시작: ${duration.toFixed(2)}초, ${Math.floor(duration * fps)}개 예상 프레임`);
+
+    while (currentTime < duration) {
+      // 비디오의 특정 시점으로 이동
+      video.currentTime = currentTime;
+
+      // seeked 이벤트 대기
+      await new Promise<void>((resolve) => {
+        video.onseeked = () => resolve();
+      });
+
+      // 프레임 처리
+      const landmarkData = await processFrame(video);
+
+      if (landmarkData) {
+        sequence.push(landmarkData);
+
+        // 손 감지 로깅
+        const hasHands = landmarkData.left_hand_features || landmarkData.right_hand_features;
+        if (hasHands) {
+          console.log(`✓ 프레임 ${currentTime.toFixed(2)}s: 왼손=${landmarkData.left_hand_features ? '✓' : '✗'}, 오른손=${landmarkData.right_hand_features ? '✓' : '✗'}`);
+        }
+      }
+
+      // 진행률 업데이트
+      currentTime += interval;
+      const progress = (currentTime / duration) * 100;
+      onProgress(Math.min(progress, 100));
+    }
+
+    // 처리 완료
+    const framesWithHands = sequence.filter(f => f.left_hand_features || f.right_hand_features).length;
+    const detectionRate = sequence.length > 0 ? (framesWithHands / sequence.length * 100) : 0;
+
+    console.log(`✅ 비디오 처리 완료!`);
+    console.log(`   총 프레임: ${sequence.length}개`);
+    console.log(`   손 감지: ${framesWithHands}개 (${detectionRate.toFixed(1)}%)`);
+
+    if (detectionRate < 30) {
+      console.warn(`⚠️  경고: 손 감지율이 낮습니다 (${detectionRate.toFixed(1)}%). 인식 정확도가 떨어질 수 있습니다.`);
+    }
+
+    landmarkSequenceRef.current = sequence;
+    onLandmarksExtracted(sequence);
+    setIsProcessing(false);
+    onComplete();
+  };
+
+  // Canvas에 그리기 (선택사항)
   const drawLandmarks = (ctx: CanvasRenderingContext2D, results: any) => {
     const drawConnectors = (landmarks: any[], connections: number[][], color: string) => {
       if (!landmarks) return;
@@ -162,7 +212,6 @@ export default function VideoProcessor({
       }
     };
 
-    // 손 연결선 정의
     const HAND_CONNECTIONS = [
       [0, 1], [1, 2], [2, 3], [3, 4],
       [0, 5], [5, 6], [6, 7], [7, 8],
@@ -172,85 +221,27 @@ export default function VideoProcessor({
       [5, 9], [9, 13], [13, 17]
     ];
 
-    // 포즈 주요 연결선
     const POSE_CONNECTIONS = [
       [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
       [11, 23], [12, 24], [23, 24], [23, 25], [24, 26],
       [25, 27], [26, 28]
     ];
 
-    // 왼손 그리기
     if (results.leftHandLandmarks) {
       drawConnectors(results.leftHandLandmarks, HAND_CONNECTIONS, '#00FFFF');
       drawPoints(results.leftHandLandmarks, '#0088FF');
     }
 
-    // 오른손 그리기
     if (results.rightHandLandmarks) {
       drawConnectors(results.rightHandLandmarks, HAND_CONNECTIONS, '#FFFF00');
       drawPoints(results.rightHandLandmarks, '#FF8800');
     }
 
-    // 포즈 그리기
     if (results.poseLandmarks) {
       drawConnectors(results.poseLandmarks, POSE_CONNECTIONS, '#00FF00');
       drawPoints(results.poseLandmarks.slice(11, 29), '#00AA00', 4);
     }
   };
-
-  const processVideo = async () => {
-    if (!videoRef.current || !holisticRef.current) {
-      onError('비디오 또는 MediaPipe 초기화 실패');
-      return;
-    }
-
-    setIsProcessing(true);
-    setRecordedSequence([]);
-    recordedSequenceRef.current = []; // ref도 초기화
-
-    const video = videoRef.current;
-    const duration = video.duration;
-    const fps = 10; // 초당 10프레임 처리
-    const interval = 1 / fps;
-
-    let currentTime = 0;
-
-    const processFrame = async () => {
-      if (currentTime >= duration) {
-        setIsProcessing(false);
-        console.log(`✅ 비디오 처리 완료: 총 ${recordedSequenceRef.current.length}개 프레임 추출`);
-        onLandmarksExtracted(recordedSequenceRef.current); // ref 사용
-        onComplete();
-        return;
-      }
-
-      video.currentTime = currentTime;
-
-      await new Promise<void>((resolve) => {
-        video.onseeked = async () => {
-          if (canvasRef.current) {
-            await holisticRef.current.send({ image: video });
-          }
-          resolve();
-        };
-      });
-
-      currentTime += interval;
-      const progress = (currentTime / duration) * 100;
-      onProgress(progress);
-
-      // 다음 프레임 처리
-      requestAnimationFrame(processFrame);
-    };
-
-    processFrame();
-  };
-
-  useEffect(() => {
-    if (recordedSequence.length > 0) {
-      onLandmarksExtracted(recordedSequence);
-    }
-  }, [recordedSequence]);
 
   return (
     <div className="space-y-4">
@@ -275,6 +266,12 @@ export default function VideoProcessor({
         >
           비디오 처리 시작
         </button>
+      )}
+
+      {isProcessing && (
+        <div className="text-center text-sm text-gray-600">
+          <p>비디오 처리 중... MediaPipe로 프레임별 특징 추출 중입니다.</p>
+        </div>
       )}
     </div>
   );
