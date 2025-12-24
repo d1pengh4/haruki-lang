@@ -226,38 +226,46 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         console.log('🔍 인식 결과:', results.slice(0, 3).map(r => `${r.sign.name}: ${r.similarity.toFixed(1)}%`).join(', '));
       }
 
-      // 새로운 특징 기반 매칭은 더 정확하므로 임계값 상향 (85% 이상)
-      if (results[0] && results[0].similarity > 85) {
+      // 임계값 조정: 70% 이상이면 표시, 75% 이상이면 인식
+      // 페널티 적용으로 실제 유사도가 낮아질 수 있으므로 임계값 하향
+      const DISPLAY_THRESHOLD = 70;  // 화면에 표시
+      const RECOGNITION_THRESHOLD = 75;  // 문장에 추가
+
+      if (results[0] && results[0].similarity > DISPLAY_THRESHOLD) {
         const bestResult = results[0];
         const now = Date.now();
 
-        // 연속 인식 확인
-        if (consecutiveRecognitionRef.current.signId === bestResult.sign.id) {
-          consecutiveRecognitionRef.current.count++;
-          consecutiveRecognitionRef.current.lastTime = now;
-        } else {
-          // 다른 수화로 바뀌면 리셋
-          consecutiveRecognitionRef.current = {
-            signId: bestResult.sign.id,
-            count: 1,
-            lastTime: now
-          };
-        }
-
+        // 항상 화면에 표시 (실시간 피드백)
         setBestMatch(bestResult);
-        
-        // 연속으로 2번 이상 인식되면 현재 인식 중인 수화로 저장
-        // (중립 포즈가 감지되면 문장에 추가됨)
-        const isConsecutiveEnough = consecutiveRecognitionRef.current.count >= 2;
-        
-        if (isConsecutiveEnough) {
-          // 현재 인식 중인 수화로 저장 (중립 포즈 감지 시 사용)
-          currentRecognizedSignRef.current = bestResult;
+
+        // 인식 임계값 이상일 때만 문장 추가 로직 실행
+        if (bestResult.similarity > RECOGNITION_THRESHOLD) {
+          // 연속 인식 확인
+          if (consecutiveRecognitionRef.current.signId === bestResult.sign.id) {
+            consecutiveRecognitionRef.current.count++;
+            consecutiveRecognitionRef.current.lastTime = now;
+          } else {
+            // 다른 수화로 바뀌면 리셋
+            consecutiveRecognitionRef.current = {
+              signId: bestResult.sign.id,
+              count: 1,
+              lastTime: now
+            };
+          }
+
+          // 연속으로 1번 이상 인식되면 현재 인식 중인 수화로 저장 (반응성 개선)
+          // (중립 포즈가 감지되면 문장에 추가됨)
+          const isConsecutiveEnough = consecutiveRecognitionRef.current.count >= 1;
+
+          if (isConsecutiveEnough) {
+            // 현재 인식 중인 수화로 저장 (중립 포즈 감지 시 사용)
+            currentRecognizedSignRef.current = bestResult;
+          }
         }
       } else {
         setBestMatch(null);
         // 임계값 미만이면 현재 인식 중인 수화도 리셋
-        if (consecutiveRecognitionRef.current.lastTime > 0 && 
+        if (consecutiveRecognitionRef.current.lastTime > 0 &&
             Date.now() - consecutiveRecognitionRef.current.lastTime > 1000) {
           consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
           currentRecognizedSignRef.current = null;
@@ -505,14 +513,30 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
               </AlertDescription>
             </Alert>
           ) : bestMatch ? (
-            <Alert className="bg-green-50 border-green-200 border-4">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <Alert className={
+              bestMatch.similarity >= 75
+                ? "bg-green-50 border-green-200 border-4"
+                : "bg-yellow-50 border-yellow-200 border-4"
+            }>
+              <CheckCircle2 className={
+                bestMatch.similarity >= 75
+                  ? "h-5 w-5 text-green-600"
+                  : "h-5 w-5 text-yellow-600"
+              } />
               <AlertDescription>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-green-900 font-bold text-4xl mb-2">{bestMatch.sign.name}</p>
-                    <p className="text-green-700 text-sm">
-                      정확도: {bestMatch.similarity.toFixed(1)}%
+                    <p className={
+                      bestMatch.similarity >= 75
+                        ? "text-green-900 font-bold text-4xl mb-2"
+                        : "text-yellow-900 font-bold text-4xl mb-2"
+                    }>{bestMatch.sign.name}</p>
+                    <p className={
+                      bestMatch.similarity >= 75
+                        ? "text-green-700 text-sm"
+                        : "text-yellow-700 text-sm"
+                    }>
+                      정확도: {bestMatch.similarity.toFixed(1)}% {bestMatch.similarity >= 75 ? "(인식됨)" : "(감지 중...)"}
                     </p>
                   </div>
                 </div>
