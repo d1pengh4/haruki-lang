@@ -188,18 +188,27 @@ export default function VideoProcessor({
         frameCount++;
         console.log(`🎞️ 프레임 ${frameCount}/${totalFrames} 처리 중... (${currentTime.toFixed(2)}s)`);
 
+        // seeked 이벤트 대기 (타임아웃 추가) - 이벤트 핸들러를 먼저 설정
+        const seekPromise = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            video.removeEventListener('seeked', onSeeked);
+            reject(new Error('Seek 타임아웃'));
+          }, 2000);
+
+          const onSeeked = () => {
+            clearTimeout(timeout);
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          };
+
+          video.addEventListener('seeked', onSeeked);
+        });
+
         // 비디오의 특정 시점으로 이동
         video.currentTime = currentTime;
 
-        // seeked 이벤트 대기 (타임아웃 추가)
         try {
-          await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Seek 타임아웃')), 2000);
-            video.onseeked = () => {
-              clearTimeout(timeout);
-              resolve();
-            };
-          });
+          await seekPromise;
         } catch (err) {
           console.warn(`⚠️ Seek 실패 (${currentTime.toFixed(2)}s), 다음 프레임으로 이동`);
           currentTime += interval;
@@ -210,7 +219,7 @@ export default function VideoProcessor({
         try {
           const landmarkData = await Promise.race([
             processFrame(video),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('프레임 처리 타임아웃')), 3000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('프레임 처리 타임아웃')), 5000))
           ]) as any;
 
           if (landmarkData) {
