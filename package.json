@@ -10,7 +10,11 @@
     "lint": "tsc --noEmit",
     "auto-learn": "node ./scripts/auto-upload.mjs",
     "batch-learn": "node ./scripts/batch-learn.mjs",
-    "validate-data": "node ./scripts/validate-data.mjs"
+    "simple-batch": "node ./scripts/simple-batch.mjs",
+    "process-videos": "node ./scripts/process-videos.mjs",
+    "validate-data": "node ./scripts/validate-data.mjs",
+    "check-data": "node ./scripts/check-data.mjs",
+    "fix-old-data": "node ./scripts/fix-old-data.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",

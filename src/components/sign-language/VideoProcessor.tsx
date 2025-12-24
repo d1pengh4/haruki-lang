@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { extractHandFeatures, extractPoseFeatures } from '@/lib/featureExtraction';
+import { extractHandFeatures, extractPoseFeatures, flattenHandFeatures } from '@/lib/featureExtraction';
 
 interface VideoProcessorProps {
   videoFile: File | null;
@@ -68,15 +68,19 @@ export default function VideoProcessor({
   }, []);
 
   const handleResults = (results: any) => {
-    const leftHandFeatures = results.leftHandLandmarks
+    const leftHandFeaturesObj = results.leftHandLandmarks
       ? extractHandFeatures(results.leftHandLandmarks)
       : null;
-    const rightHandFeatures = results.rightHandLandmarks
+    const rightHandFeaturesObj = results.rightHandLandmarks
       ? extractHandFeatures(results.rightHandLandmarks)
       : null;
     const poseFeatures = results.poseLandmarks
       ? extractPoseFeatures(results.poseLandmarks)
       : null;
+
+    // 특징 객체를 배열로 평탄화
+    const leftHandFeatures = leftHandFeaturesObj ? flattenHandFeatures(leftHandFeaturesObj) : null;
+    const rightHandFeatures = rightHandFeaturesObj ? flattenHandFeatures(rightHandFeaturesObj) : null;
 
     const timestamp = videoRef.current?.currentTime || 0;
 

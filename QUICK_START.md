@@ -6,11 +6,11 @@
 # 1. 터미널 1: 개발 서버 실행
 npm run dev
 
-# 2. 터미널 2: 데이터 검증 (선택)
-npm run validate-data
+# 2. 터미널 2: 간단한 배치 학습 (추천)
+npm run simple-batch 1501 1510
 
-# 3. 터미널 2: 배치 학습 시작
-npm run batch-learn
+# 또는 기존 Puppeteer 방식
+npm run batch-learn -- --start 1501 --count 10
 ```
 
 ---
@@ -44,20 +44,24 @@ npm run validate-data
 
 ### 3️⃣ 배치 학습 시작
 
+**방법 1: 간단한 배치 (추천)**
+```bash
+# 테스트 (1개)
+npm run simple-batch 1501
+
+# 범위 지정 (10개)
+npm run simple-batch 1501 1510
+
+# 대량 처리
+npm run simple-batch 1501 3000
+```
+
+**방법 2: 기존 Puppeteer 방식**
 ```bash
 # 모든 파일 자동 처리
 npm run batch-learn
-```
 
-또는 특정 파일만:
-```bash
-# 1510번부터 시작
-npm run batch-learn -- --start 1510
-
-# 처음 50개만 처리
-npm run batch-learn -- --count 50
-
-# 1510번부터 50개
+# 특정 파일만
 npm run batch-learn -- --start 1510 --count 50
 ```
 
