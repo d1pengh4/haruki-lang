@@ -68,11 +68,23 @@ export default function VideoProcessor({
   }, []);
 
   const handleResults = (results: any) => {
+    // 신체 크기 기준값 계산 (어깨 너비) - WebcamCapture와 동일
+    let bodyScale = null;
+    if (results.poseLandmarks && results.poseLandmarks.length >= 33) {
+      const leftShoulder = results.poseLandmarks[11];
+      const rightShoulder = results.poseLandmarks[12];
+      const dx = leftShoulder.x - rightShoulder.x;
+      const dy = leftShoulder.y - rightShoulder.y;
+      const dz = leftShoulder.z - rightShoulder.z;
+      bodyScale = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    // WebcamCapture와 동일하게 bodyScale을 전달
     const leftHandFeaturesObj = results.leftHandLandmarks
-      ? extractHandFeatures(results.leftHandLandmarks)
+      ? extractHandFeatures(results.leftHandLandmarks, bodyScale)
       : null;
     const rightHandFeaturesObj = results.rightHandLandmarks
-      ? extractHandFeatures(results.rightHandLandmarks)
+      ? extractHandFeatures(results.rightHandLandmarks, bodyScale)
       : null;
     const poseFeatures = results.poseLandmarks
       ? extractPoseFeatures(results.poseLandmarks)
