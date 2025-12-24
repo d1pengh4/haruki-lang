@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { extractHandFeatures, extractPoseFeatures, flattenHandFeatures } from '@/lib/featureExtraction';
 
 interface VideoProcessorProps {
@@ -122,16 +122,38 @@ export default function VideoProcessor({
 
   // 비디오 전체 처리
   const processVideo = async () => {
-    if (!videoRef.current || !holisticRef.current) {
-      onError('비디오 또는 MediaPipe 초기화 실패');
+    if (!videoRef.current) {
+      onError('비디오 로드 실패');
+      return;
+    }
+
+    const video = videoRef.current;
+
+    // 비디오 메타데이터 로드 대기
+    if (!video.duration || isNaN(video.duration)) {
+      await new Promise<void>((resolve) => {
+        video.onloadedmetadata = () => resolve();
+        video.load();
+      });
+    }
+
+    // MediaPipe 초기화 대기
+    if (!holisticRef.current) {
+      onError('MediaPipe 초기화 중입니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
     setIsProcessing(true);
     landmarkSequenceRef.current = [];
 
-    const video = videoRef.current;
     const duration = video.duration;
+
+    if (!duration || isNaN(duration) || duration === 0) {
+      setIsProcessing(false);
+      onError('비디오 길이를 읽을 수 없습니다. 다른 파일을 시도해주세요.');
+      return;
+    }
+
     const fps = 10; // 초당 10프레임 (WebcamCapture는 실시간이지만 비디오는 샘플링)
     const interval = 1 / fps;
 
@@ -184,63 +206,6 @@ export default function VideoProcessor({
     onLandmarksExtracted(sequence);
     setIsProcessing(false);
     onComplete();
-  };
-
-  // Canvas에 그리기 (선택사항)
-  const drawLandmarks = (ctx: CanvasRenderingContext2D, results: any) => {
-    const drawConnectors = (landmarks: any[], connections: number[][], color: string) => {
-      if (!landmarks) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      for (const [start, end] of connections) {
-        if (landmarks[start] && landmarks[end]) {
-          ctx.beginPath();
-          ctx.moveTo(landmarks[start].x * ctx.canvas.width, landmarks[start].y * ctx.canvas.height);
-          ctx.lineTo(landmarks[end].x * ctx.canvas.width, landmarks[end].y * ctx.canvas.height);
-          ctx.stroke();
-        }
-      }
-    };
-
-    const drawPoints = (landmarks: any[], color: string, radius: number = 3) => {
-      if (!landmarks) return;
-      ctx.fillStyle = color;
-      for (const landmark of landmarks) {
-        ctx.beginPath();
-        ctx.arc(landmark.x * ctx.canvas.width, landmark.y * ctx.canvas.height, radius, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-    };
-
-    const HAND_CONNECTIONS = [
-      [0, 1], [1, 2], [2, 3], [3, 4],
-      [0, 5], [5, 6], [6, 7], [7, 8],
-      [0, 9], [9, 10], [10, 11], [11, 12],
-      [0, 13], [13, 14], [14, 15], [15, 16],
-      [0, 17], [17, 18], [18, 19], [19, 20],
-      [5, 9], [9, 13], [13, 17]
-    ];
-
-    const POSE_CONNECTIONS = [
-      [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
-      [11, 23], [12, 24], [23, 24], [23, 25], [24, 26],
-      [25, 27], [26, 28]
-    ];
-
-    if (results.leftHandLandmarks) {
-      drawConnectors(results.leftHandLandmarks, HAND_CONNECTIONS, '#00FFFF');
-      drawPoints(results.leftHandLandmarks, '#0088FF');
-    }
-
-    if (results.rightHandLandmarks) {
-      drawConnectors(results.rightHandLandmarks, HAND_CONNECTIONS, '#FFFF00');
-      drawPoints(results.rightHandLandmarks, '#FF8800');
-    }
-
-    if (results.poseLandmarks) {
-      drawConnectors(results.poseLandmarks, POSE_CONNECTIONS, '#00FF00');
-      drawPoints(results.poseLandmarks.slice(11, 29), '#00AA00', 4);
-    }
   };
 
   return (
