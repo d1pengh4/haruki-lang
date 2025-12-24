@@ -295,13 +295,27 @@ if __name__ == '__main__':
     print(f"Supabase URL: {SUPABASE_URL}")
     print()
 
-    # 테스트: 1501 파일만 처리
-    test_number = "1501"
-    success = process_single_file(test_number)
+    # 테스트: 1501-1502 파일 처리
+    test_numbers = ["1501", "1502"]
+    success_count = 0
+    fail_count = 0
 
-    if success:
-        print("\n🎉 테스트 성공! 데이터베이스를 확인하세요.")
-        print("전체 배치 처리를 원하면 스크립트를 수정하세요.")
-    else:
-        print("\n💥 테스트 실패!")
+    for number in test_numbers:
+        if process_single_file(number):
+            success_count += 1
+        else:
+            fail_count += 1
+
+    print("\n" + "="*60)
+    print("📊 배치 처리 완료")
+    print("="*60)
+    print(f"✅ 성공: {success_count}개")
+    print(f"❌ 실패: {fail_count}개")
+    print(f"📁 총: {len(test_numbers)}개 파일 처리")
+
+    if success_count > 0:
+        print("\n🎉 처리 완료! 데이터베이스를 확인하세요.")
+
+    if fail_count > 0:
+        print("\n⚠️  일부 파일 처리 실패. 로그를 확인하세요.")
         sys.exit(1)
