@@ -173,15 +173,17 @@ def process_video(video_path, fps=10):
     return sequence, duration
 
 def read_label(json_path):
-    """JSON 파일에서 수화 이름 읽기"""
+    """JSON 파일에서 수화 이름과 시간 구간 읽기"""
     try:
         with open(json_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             name = data['data'][0]['attributes'][0]['name']
-            return name
+            start_time = data['data'][0].get('start', 0)  # 시작 시간 (초)
+            end_time = data['data'][0].get('end', None)    # 종료 시간 (초)
+            return name, start_time, end_time
     except Exception as e:
         print(f"❌ JSON 읽기 실패 ({json_path}): {e}")
-        return None
+        return None, None, None
 
 def save_to_supabase(name, landmarks_sequence, duration):
     """Supabase에 저장"""
@@ -217,23 +219,44 @@ def process_single_file(video_number):
         print(f"❌ JSON 파일 없음: {json_path}")
         return False
 
-    # 라벨 읽기
-    name = read_label(json_path)
+    # 라벨 및 시간 구간 읽기
+    name, start_time, end_time = read_label(json_path)
     if not name:
         return False
 
     print(f"📝 수화 이름: {name}")
+    print(f"⏰ 시간 구간: {start_time:.3f}초 ~ {end_time:.3f}초 ({end_time - start_time:.3f}초)")
 
     # 비디오 처리
     result = process_video(video_path)
     if not result:
         return False
 
-    sequence, duration = result
+    full_sequence, full_duration = result
 
-    if not sequence or len(sequence) < 5:
-        print(f"❌ 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(sequence)}개)")
+    # 시간 구간에 맞게 프레임 필터링
+    start_ms = start_time * 1000
+    end_ms = end_time * 1000 if end_time else full_duration * 1000
+
+    filtered_sequence = [
+        frame for frame in full_sequence
+        if start_ms <= frame['timestamp'] <= end_ms
+    ]
+
+    print(f"📊 프레임 필터링:")
+    print(f"   전체: {len(full_sequence)}개")
+    print(f"   구간: {len(filtered_sequence)}개")
+
+    if not filtered_sequence or len(filtered_sequence) < 5:
+        print(f"❌ 필터링 후 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(filtered_sequence)}개)")
         return False
+
+    # 타임스탬프 재조정 (시작 시간을 0으로)
+    for frame in filtered_sequence:
+        frame['timestamp'] = frame['timestamp'] - start_ms
+
+    sequence = filtered_sequence
+    duration = (end_ms - start_ms) / 1000
 
     # Supabase 저장
     success = save_to_supabase(name, sequence, duration)
