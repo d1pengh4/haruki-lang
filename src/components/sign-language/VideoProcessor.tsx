@@ -21,6 +21,7 @@ export default function VideoProcessor({
   const holisticRef = useRef<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordedSequence, setRecordedSequence] = useState<any[]>([]);
+  const recordedSequenceRef = useRef<any[]>([]); // state와 동기화할 ref
 
   useEffect(() => {
     if (!videoFile) return;
@@ -90,6 +91,15 @@ export default function VideoProcessor({
       pose_features: poseFeatures
     };
 
+    // 디버깅: 손 감지 확인
+    if (!leftHandFeatures && !rightHandFeatures) {
+      console.warn(`⚠️  프레임 ${timestamp.toFixed(2)}s: 손이 감지되지 않음`);
+    } else {
+      console.log(`✓ 프레임 ${timestamp.toFixed(2)}s: 왼손=${leftHandFeatures ? '✓' : '✗'}, 오른손=${rightHandFeatures ? '✓' : '✗'}`);
+    }
+
+    // ref에도 저장 (state는 비동기이므로 processVideo에서 사용 불가)
+    recordedSequenceRef.current.push(landmarkData);
     setRecordedSequence(prev => [...prev, landmarkData]);
 
     // Canvas에 그리기
@@ -180,6 +190,7 @@ export default function VideoProcessor({
 
     setIsProcessing(true);
     setRecordedSequence([]);
+    recordedSequenceRef.current = []; // ref도 초기화
 
     const video = videoRef.current;
     const duration = video.duration;
@@ -191,7 +202,8 @@ export default function VideoProcessor({
     const processFrame = async () => {
       if (currentTime >= duration) {
         setIsProcessing(false);
-        onLandmarksExtracted(recordedSequence);
+        console.log(`✅ 비디오 처리 완료: 총 ${recordedSequenceRef.current.length}개 프레임 추출`);
+        onLandmarksExtracted(recordedSequenceRef.current); // ref 사용
         onComplete();
         return;
       }

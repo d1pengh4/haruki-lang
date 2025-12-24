@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "auto-learn": "node ./scripts/auto-upload.mjs",
+    "batch-learn": "node ./scripts/batch-learn.mjs",
+    "validate-data": "node ./scripts/validate-data.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",
@@ -19,6 +22,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.451.0",
+    "puppeteer": "^24.34.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4"
@@ -28,6 +32,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^17.2.3",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",

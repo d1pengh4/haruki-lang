@@ -1,0 +1,26 @@
+[
+  {
+    "fileId": "1501",
+    "signName": "운전면허",
+    "videoPath": "/Users/choieuro/Desktop/haruki-lang/02/1501.mp4",
+    "duration": 3.967,
+    "start": 1.298,
+    "end": 2.779
+  },
+  {
+    "fileId": "1502",
+    "signName": "골키퍼",
+    "videoPath": "/Users/choieuro/Desktop/haruki-lang/02/1502.mp4",
+    "duration": 3.267,
+    "start": 1.3,
+    "end": 2.137
+  },
+  {
+    "fileId": "1503",
+    "signName": "구경",
+    "videoPath": "/Users/choieuro/Desktop/haruki-lang/02/1503.mp4",
+    "duration": 3.734,
+    "start": 1.409,
+    "end": 2.281
+  }
+]

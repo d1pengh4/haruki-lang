@@ -55,3 +55,4 @@ credentials/
 
 # Claude AI
 .claude
+.env*.local

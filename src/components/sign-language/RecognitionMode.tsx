@@ -211,7 +211,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
       signs.forEach(sign => {
         if (!sign.landmarks_sequence || sign.landmarks_sequence.length < 5) return;
-        
+
         const similarity = calculateMotionSimilarityOptimized(motionBufferRef.current, sign.landmarks_sequence);
         results.push({
           sign,
@@ -220,6 +220,11 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       });
 
       results.sort((a, b) => b.similarity - a.similarity);
+
+      // 디버깅: 상위 3개 결과 출력
+      if (results.length > 0) {
+        console.log('🔍 인식 결과:', results.slice(0, 3).map(r => `${r.sign.name}: ${r.similarity.toFixed(1)}%`).join(', '));
+      }
 
       // 새로운 특징 기반 매칭은 더 정확하므로 임계값 상향 (85% 이상)
       if (results[0] && results[0].similarity > 85) {
