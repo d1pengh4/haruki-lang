@@ -122,31 +122,50 @@ export default function VideoProcessor({
 
   // 비디오 전체 처리
   const processVideo = async () => {
+    console.log('🎬 processVideo 시작');
+
     if (!videoRef.current) {
+      console.error('❌ videoRef.current가 없음');
       onError('비디오 로드 실패');
       return;
     }
 
     const video = videoRef.current;
+    console.log('📹 비디오 엘리먼트 확인:', video);
 
     // 비디오 메타데이터 로드 대기
     if (!video.duration || isNaN(video.duration)) {
-      await new Promise<void>((resolve) => {
-        video.onloadedmetadata = () => resolve();
-        video.load();
-      });
+      console.log('⏳ 비디오 메타데이터 로드 대기 중...');
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('메타데이터 로드 타임아웃')), 5000);
+          video.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            console.log('✅ 메타데이터 로드 완료');
+            resolve();
+          };
+          video.load();
+        });
+      } catch (err) {
+        console.error('❌ 메타데이터 로드 실패:', err);
+        onError('비디오 로드 실패. 다른 파일을 시도해주세요.');
+        return;
+      }
     }
 
     // MediaPipe 초기화 대기
     if (!holisticRef.current) {
+      console.error('❌ holisticRef.current가 없음');
       onError('MediaPipe 초기화 중입니다. 잠시 후 다시 시도해주세요.');
       return;
     }
 
+    console.log('✅ MediaPipe 준비 완료');
     setIsProcessing(true);
     landmarkSequenceRef.current = [];
 
     const duration = video.duration;
+    console.log('⏱️ 비디오 길이:', duration);
 
     if (!duration || isNaN(duration) || duration === 0) {
       setIsProcessing(false);
@@ -154,58 +173,92 @@ export default function VideoProcessor({
       return;
     }
 
-    const fps = 10; // 초당 10프레임 (WebcamCapture는 실시간이지만 비디오는 샘플링)
+    const fps = 10;
     const interval = 1 / fps;
+    const totalFrames = Math.floor(duration * fps);
 
     let currentTime = 0;
     const sequence: any[] = [];
 
-    console.log(`📹 비디오 처리 시작: ${duration.toFixed(2)}초, ${Math.floor(duration * fps)}개 예상 프레임`);
+    console.log(`📹 비디오 처리 시작: ${duration.toFixed(2)}초, ${totalFrames}개 예상 프레임`);
 
-    while (currentTime < duration) {
-      // 비디오의 특정 시점으로 이동
-      video.currentTime = currentTime;
+    try {
+      let frameCount = 0;
+      while (currentTime < duration) {
+        frameCount++;
+        console.log(`🎞️ 프레임 ${frameCount}/${totalFrames} 처리 중... (${currentTime.toFixed(2)}s)`);
 
-      // seeked 이벤트 대기
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve();
-      });
+        // 비디오의 특정 시점으로 이동
+        video.currentTime = currentTime;
 
-      // 프레임 처리
-      const landmarkData = await processFrame(video);
-
-      if (landmarkData) {
-        sequence.push(landmarkData);
-
-        // 손 감지 로깅
-        const hasHands = landmarkData.left_hand_features || landmarkData.right_hand_features;
-        if (hasHands) {
-          console.log(`✓ 프레임 ${currentTime.toFixed(2)}s: 왼손=${landmarkData.left_hand_features ? '✓' : '✗'}, 오른손=${landmarkData.right_hand_features ? '✓' : '✗'}`);
+        // seeked 이벤트 대기 (타임아웃 추가)
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Seek 타임아웃')), 2000);
+            video.onseeked = () => {
+              clearTimeout(timeout);
+              resolve();
+            };
+          });
+        } catch (err) {
+          console.warn(`⚠️ Seek 실패 (${currentTime.toFixed(2)}s), 다음 프레임으로 이동`);
+          currentTime += interval;
+          continue;
         }
+
+        // 프레임 처리
+        try {
+          const landmarkData = await Promise.race([
+            processFrame(video),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('프레임 처리 타임아웃')), 3000))
+          ]) as any;
+
+          if (landmarkData) {
+            sequence.push(landmarkData);
+
+            // 손 감지 로깅
+            const hasHands = landmarkData.left_hand_features || landmarkData.right_hand_features;
+            if (hasHands) {
+              console.log(`✓ 프레임 ${currentTime.toFixed(2)}s: 왼손=${landmarkData.left_hand_features ? '✓' : '✗'}, 오른손=${landmarkData.right_hand_features ? '✓' : '✗'}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`⚠️ 프레임 처리 실패 (${currentTime.toFixed(2)}s):`, err);
+        }
+
+        // 진행률 업데이트
+        currentTime += interval;
+        const progress = (currentTime / duration) * 100;
+        onProgress(Math.min(progress, 100));
       }
 
-      // 진행률 업데이트
-      currentTime += interval;
-      const progress = (currentTime / duration) * 100;
-      onProgress(Math.min(progress, 100));
+      // 처리 완료
+      const framesWithHands = sequence.filter(f => f.left_hand_features || f.right_hand_features).length;
+      const detectionRate = sequence.length > 0 ? (framesWithHands / sequence.length * 100) : 0;
+
+      console.log(`✅ 비디오 처리 완료!`);
+      console.log(`   총 프레임: ${sequence.length}개`);
+      console.log(`   손 감지: ${framesWithHands}개 (${detectionRate.toFixed(1)}%)`);
+
+      if (detectionRate < 30) {
+        console.warn(`⚠️  경고: 손 감지율이 낮습니다 (${detectionRate.toFixed(1)}%). 인식 정확도가 떨어질 수 있습니다.`);
+      }
+
+      if (sequence.length === 0) {
+        setIsProcessing(false);
+        onError('프레임을 처리할 수 없었습니다. 다른 비디오 파일을 시도해주세요.');
+        return;
+      }
+
+      landmarkSequenceRef.current = sequence;
+      onLandmarksExtracted(sequence);
+      setIsProcessing(false);
+      onComplete();
+    } catch (err) {
+      console.error('❌ 비디오 처리 중 오류:', err);
+      setIsProcessing(false);
+      onError('비디오 처리 중 오류가 발생했습니다.');
     }
-
-    // 처리 완료
-    const framesWithHands = sequence.filter(f => f.left_hand_features || f.right_hand_features).length;
-    const detectionRate = sequence.length > 0 ? (framesWithHands / sequence.length * 100) : 0;
-
-    console.log(`✅ 비디오 처리 완료!`);
-    console.log(`   총 프레임: ${sequence.length}개`);
-    console.log(`   손 감지: ${framesWithHands}개 (${detectionRate.toFixed(1)}%)`);
-
-    if (detectionRate < 30) {
-      console.warn(`⚠️  경고: 손 감지율이 낮습니다 (${detectionRate.toFixed(1)}%). 인식 정확도가 떨어질 수 있습니다.`);
-    }
-
-    landmarkSequenceRef.current = sequence;
-    onLandmarksExtracted(sequence);
-    setIsProcessing(false);
-    onComplete();
   };
 
   return (
