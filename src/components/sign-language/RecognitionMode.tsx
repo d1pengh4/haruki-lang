@@ -212,7 +212,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       signs.forEach(sign => {
         if (!sign.landmarks_sequence || sign.landmarks_sequence.length < 5) return;
 
-        const similarity = calculateMotionSimilarityOptimized(motionBufferRef.current, sign.landmarks_sequence);
+        const similarity = calculateMotionSimilarityOptimized(motionBufferRef.current, sign.landmarks_sequence, sign.name === '운전면허');
         results.push({
           sign,
           similarity: similarity * 100
@@ -274,7 +274,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     return calculateFeatureSimilarity(features1, features2);
   };
 
-  const calculateMotionSimilarityOptimized = (buffer, sequence) => {
+  const calculateMotionSimilarityOptimized = (buffer, sequence, debugMode = false) => {
     if (!buffer || buffer.length < 3 || !sequence || sequence.length < 3) return 0;
 
     // 샘플링 레이트를 낮춰 더 많은 프레임 분석 (더 정확한 매칭)
@@ -286,25 +286,42 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
     // 길이 비율 범위를 넓혀 더 다양한 동작 속도 지원
     const lengthRatio = sampledBuffer.length / sampledSequence.length;
-    if (lengthRatio < 0.3 || lengthRatio > 3.0) return 0;
+
+    if (debugMode) {
+      console.log('🔬 운전면허 디버깅:');
+      console.log('  버퍼 길이:', sampledBuffer.length, '학습 데이터 길이:', sampledSequence.length, '비율:', lengthRatio.toFixed(2));
+    }
+
+    if (lengthRatio < 0.3 || lengthRatio > 3.0) {
+      if (debugMode) console.log('  ❌ 길이 비율 범위 밖:', lengthRatio.toFixed(2));
+      return 0;
+    }
 
     let bestSimilarity = 0;
+    let bestOffset = 0;
     const windowSize = Math.min(sampledBuffer.length, sampledSequence.length);
 
     const step = Math.max(1, Math.floor(windowSize / 4));
-    
+
     for (let offset = 0; offset <= sampledBuffer.length - windowSize; offset += step) {
       const segment = sampledBuffer.slice(offset, offset + windowSize);
-      
+
       let frameSimilarities = [];
-      
+
       for (let i = 0; i < Math.min(segment.length, sampledSequence.length); i++) {
-        const frameSim = compareFramesOptimized(segment[i], sampledSequence[i]);
+        const frameSim = compareFramesOptimized(segment[i], sampledSequence[i], debugMode && offset === 0 && i === 0);
         frameSimilarities.push(frameSim);
       }
 
       const avgSim = frameSimilarities.reduce((a, b) => a + b, 0) / frameSimilarities.length;
-      bestSimilarity = Math.max(bestSimilarity, avgSim);
+      if (avgSim > bestSimilarity) {
+        bestSimilarity = avgSim;
+        bestOffset = offset;
+      }
+    }
+
+    if (debugMode) {
+      console.log('  최고 유사도:', (bestSimilarity * 100).toFixed(1) + '% (오프셋:', bestOffset + ')');
     }
 
     return bestSimilarity;
@@ -338,7 +355,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     return ratio;
   };
 
-  const compareFramesOptimized = (frame1, frame2) => {
+  const compareFramesOptimized = (frame1, frame2, debugMode = false) => {
     let totalSim = 0;
     let count = 0;
 
@@ -349,13 +366,23 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     // 손 특징은 이미 손 크기로 정규화되어 있어 체구와 무관
     if (frame1.left_hand_features && frame2.left_hand_features) {
       const featureSim = compareFeaturesOptimized(frame1.left_hand_features, frame2.left_hand_features);
+      if (debugMode && featureSim > 0.5) {
+        console.log('  왼손 특징 유사도:', (featureSim * 100).toFixed(1) + '%',
+                    'len1:', frame1.left_hand_features.length,
+                    'len2:', frame2.left_hand_features.length);
+      }
       totalSim += featureSim * 10;
       count += 10;
+    } else if (debugMode) {
+      console.log('  왼손 특징 없음:', 'frame1:', !!frame1.left_hand_features, 'frame2:', !!frame2.left_hand_features);
     }
 
     // 오른손 특징 비교 (가중치 10 - 매우 중요)
     if (frame1.right_hand_features && frame2.right_hand_features) {
       const featureSim = compareFeaturesOptimized(frame1.right_hand_features, frame2.right_hand_features);
+      if (debugMode && featureSim > 0.5) {
+        console.log('  오른손 특징 유사도:', (featureSim * 100).toFixed(1) + '%');
+      }
       totalSim += featureSim * 10;
       count += 10;
     }

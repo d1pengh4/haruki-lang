@@ -32,6 +32,7 @@ export interface LandmarkFrame {
   face: Landmark[] | null
   left_hand_features: number[] | null
   right_hand_features: number[] | null
+  pose_features: number[] | null
 }
 
 export interface Landmark {
