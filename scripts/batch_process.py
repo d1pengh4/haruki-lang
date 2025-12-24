@@ -62,12 +62,13 @@ def calculate_body_scale(pose_landmarks):
 
     return math.sqrt(dx*dx + dy*dy + dz*dz)
 
-def process_video(video_path, fps=10):
+def process_video(video_path, fps=10, flip_horizontal=True):
     """
     영상 파일을 처리하여 랜드마크 시퀀스 추출
     WebcamCapture와 완전히 동일한 방식
     """
-    print(f"📹 비디오 처리 시작: {video_path}")
+    flip_msg = " (좌우 반전)" if flip_horizontal else " (원본)"
+    print(f"📹 비디오 처리 시작: {video_path}{flip_msg}")
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -99,6 +100,11 @@ def process_video(video_path, fps=10):
 
         # RGB로 변환 (MediaPipe 요구사항)
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # 좌우 반전 (선택적)
+        if flip_horizontal:
+            # 웹캠은 -scale-x-100으로 미러링되므로, 영상도 동일하게 처리
+            frame_rgb = cv2.flip(frame_rgb, 1)
 
         # MediaPipe 처리
         results = holistic.process(frame_rgb)
@@ -227,48 +233,62 @@ def process_single_file(video_number):
     print(f"📝 수화 이름: {name}")
     print(f"⏰ 시간 구간: {start_time:.3f}초 ~ {end_time:.3f}초 ({end_time - start_time:.3f}초)")
 
-    # 비디오 처리
-    result = process_video(video_path)
-    if not result:
-        return False
+    success_count = 0
 
-    full_sequence, full_duration = result
+    # 두 버전 처리: 반전 + 비반전
+    for flip in [True, False]:
+        flip_label = "반전" if flip else "원본"
+        print(f"\n📹 처리 중: {flip_label} 버전")
 
-    # 시간 구간에 맞게 프레임 필터링
-    start_ms = start_time * 1000
-    end_ms = end_time * 1000 if end_time else full_duration * 1000
+        # 비디오 처리
+        result = process_video(video_path, flip_horizontal=flip)
+        if not result:
+            print(f"❌ {flip_label} 버전 처리 실패")
+            continue
 
-    filtered_sequence = [
-        frame for frame in full_sequence
-        if start_ms <= frame['timestamp'] <= end_ms
-    ]
+        full_sequence, full_duration = result
 
-    print(f"📊 프레임 필터링:")
-    print(f"   전체: {len(full_sequence)}개")
-    print(f"   구간: {len(filtered_sequence)}개")
+        # 시간 구간에 맞게 프레임 필터링
+        start_ms = start_time * 1000
+        end_ms = end_time * 1000 if end_time else full_duration * 1000
 
-    if not filtered_sequence or len(filtered_sequence) < 5:
-        print(f"❌ 필터링 후 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(filtered_sequence)}개)")
-        return False
+        filtered_sequence = [
+            frame for frame in full_sequence
+            if start_ms <= frame['timestamp'] <= end_ms
+        ]
 
-    # 타임스탬프 재조정 (시작 시간을 0으로)
-    for frame in filtered_sequence:
-        frame['timestamp'] = frame['timestamp'] - start_ms
+        print(f"📊 프레임 필터링:")
+        print(f"   전체: {len(full_sequence)}개")
+        print(f"   구간: {len(filtered_sequence)}개")
 
-    sequence = filtered_sequence
-    duration = (end_ms - start_ms) / 1000
+        if not filtered_sequence or len(filtered_sequence) < 5:
+            print(f"❌ 필터링 후 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(filtered_sequence)}개)")
+            continue
 
-    # Supabase 저장
-    success = save_to_supabase(name, sequence, duration)
+        # 타임스탬프 재조정 (시작 시간을 0으로)
+        for frame in filtered_sequence:
+            frame['timestamp'] = frame['timestamp'] - start_ms
+
+        sequence = filtered_sequence
+        duration = (end_ms - start_ms) / 1000
+
+        # Supabase 저장
+        if save_to_supabase(name, sequence, duration):
+            success_count += 1
+            print(f"✅ {flip_label} 버전 저장 완료")
+        else:
+            print(f"❌ {flip_label} 버전 저장 실패")
 
     print(f"\n{'='*60}")
-    if success:
-        print(f"✅ 완료: {video_number} ({name})")
+    if success_count == 2:
+        print(f"✅ 완료: {video_number} ({name}) - 2개 버전 저장됨")
+    elif success_count == 1:
+        print(f"⚠️  부분 완료: {video_number} ({name}) - 1개 버전만 저장됨")
     else:
         print(f"❌ 실패: {video_number}")
     print(f"{'='*60}\n")
 
-    return success
+    return success_count > 0
 
 if __name__ == '__main__':
     print("🚀 배치 학습 스크립트 시작")

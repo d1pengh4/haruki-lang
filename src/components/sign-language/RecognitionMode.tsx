@@ -373,8 +373,13 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       }
       totalSim += featureSim * 10;
       count += 10;
-    } else if (debugMode) {
-      console.log('  왼손 특징 없음:', 'frame1:', !!frame1.left_hand_features, 'frame2:', !!frame2.left_hand_features);
+    } else if (frame1.left_hand_features || frame2.left_hand_features) {
+      // 한쪽만 손이 있으면 페널티 (0.3 유사도로 처리)
+      if (debugMode) {
+        console.log('  왼손 특징 없음 (페널티):', 'frame1:', !!frame1.left_hand_features, 'frame2:', !!frame2.left_hand_features);
+      }
+      totalSim += 0.3 * 10;
+      count += 10;
     }
 
     // 오른손 특징 비교 (가중치 10 - 매우 중요)
@@ -384,6 +389,13 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         console.log('  오른손 특징 유사도:', (featureSim * 100).toFixed(1) + '%');
       }
       totalSim += featureSim * 10;
+      count += 10;
+    } else if (frame1.right_hand_features || frame2.right_hand_features) {
+      // 한쪽만 손이 있으면 페널티 (0.3 유사도로 처리)
+      if (debugMode) {
+        console.log('  오른손 특징 없음 (페널티):', 'frame1:', !!frame1.right_hand_features, 'frame2:', !!frame2.right_hand_features);
+      }
+      totalSim += 0.3 * 10;
       count += 10;
     }
 

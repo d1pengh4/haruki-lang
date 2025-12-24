@@ -54,6 +54,7 @@ async function debugRecognition() {
   console.log(`   left_hand_features: ${frame.left_hand_features ? `array[${frame.left_hand_features.length}]` : 'null'}`);
   console.log(`   right_hand_features: ${frame.right_hand_features ? `array[${frame.right_hand_features.length}]` : 'null'}`);
 
+  // 왼손 특징 분석
   if (frame.left_hand_features) {
     console.log(`\\n   왼손 특징 벡터:`);
     console.log(`     fingerExtensions (0-4): ${JSON.stringify(frame.left_hand_features.slice(0, 5))}`);
@@ -62,7 +63,6 @@ async function debugRecognition() {
     console.log(`     handShapeRatios (25-27): ${JSON.stringify(frame.left_hand_features.slice(25, 28))}`);
     console.log(`     fingerBendAngles (28-32): ${JSON.stringify(frame.left_hand_features.slice(28, 33))}`);
 
-    // 통계
     const sum = frame.left_hand_features.reduce((a, b) => a + b, 0);
     const mean = sum / frame.left_hand_features.length;
     const variance = frame.left_hand_features.reduce((sum, val) => sum + (val - mean) ** 2, 0) / frame.left_hand_features.length;
@@ -75,6 +75,27 @@ async function debugRecognition() {
     console.log(`     최대값: ${Math.max(...frame.left_hand_features).toFixed(4)}`);
   }
 
+  // 오른손 특징 분석
+  if (frame.right_hand_features) {
+    console.log(`\\n   오른손 특징 벡터:`);
+    console.log(`     fingerExtensions (0-4): ${JSON.stringify(frame.right_hand_features.slice(0, 5))}`);
+    console.log(`     fingerAngles (5-14): ${JSON.stringify(frame.right_hand_features.slice(5, 15))}`);
+    console.log(`     fingerTipDistances (15-24): ${JSON.stringify(frame.right_hand_features.slice(15, 25))}`);
+    console.log(`     handShapeRatios (25-27): ${JSON.stringify(frame.right_hand_features.slice(25, 28))}`);
+    console.log(`     fingerBendAngles (28-32): ${JSON.stringify(frame.right_hand_features.slice(28, 33))}`);
+
+    const sum = frame.right_hand_features.reduce((a, b) => a + b, 0);
+    const mean = sum / frame.right_hand_features.length;
+    const variance = frame.right_hand_features.reduce((sum, val) => sum + (val - mean) ** 2, 0) / frame.right_hand_features.length;
+    const stdDev = Math.sqrt(variance);
+
+    console.log(`\\n   통계:`);
+    console.log(`     평균: ${mean.toFixed(4)}`);
+    console.log(`     표준편차: ${stdDev.toFixed(4)}`);
+    console.log(`     최소값: ${Math.min(...frame.right_hand_features).toFixed(4)}`);
+    console.log(`     최대값: ${Math.max(...frame.right_hand_features).toFixed(4)}`);
+  }
+
   // 다른 수화와 비교
   const { data: otherSigns } = await supabase
     .from('sign_languages')
@@ -83,7 +104,7 @@ async function debugRecognition() {
     .limit(3);
 
   if (otherSigns && otherSigns.length > 0) {
-    console.log(`\\n🔬 다른 수화와 유사도 비교:`);
+    console.log(`\\n🔬 다른 수화와 유사도 비교 (왼손):`);
 
     for (const other of otherSigns) {
       if (!other.landmarks_sequence || other.landmarks_sequence.length === 0) continue;
@@ -95,27 +116,40 @@ async function debugRecognition() {
         console.log(`   ${other.name}: ${(similarity * 100).toFixed(1)}%`);
       }
     }
+
+    console.log(`\\n🔬 다른 수화와 유사도 비교 (오른손):`);
+
+    for (const other of otherSigns) {
+      if (!other.landmarks_sequence || other.landmarks_sequence.length === 0) continue;
+
+      const otherFrame = other.landmarks_sequence[0];
+
+      if (frame.right_hand_features && otherFrame.right_hand_features) {
+        const similarity = calculateCosineSimilarity(frame.right_hand_features, otherFrame.right_hand_features);
+        console.log(`   ${other.name}: ${(similarity * 100).toFixed(1)}%`);
+      }
+    }
   }
 
   // 자기 자신과의 유사도 (다른 프레임)
-  console.log(`\\n🔄 같은 수화 내 프레임 간 유사도:`);
+  console.log(`\\n🔄 같은 수화 내 프레임 간 유사도 (오른손):`);
   const frame0 = signData.landmarks_sequence[0];
-  const frame20 = signData.landmarks_sequence[20];
-  const frame40 = signData.landmarks_sequence[Math.min(40, signData.landmarks_sequence.length - 1)];
+  const frame5 = signData.landmarks_sequence[Math.min(5, signData.landmarks_sequence.length - 1)];
+  const frame14 = signData.landmarks_sequence[Math.min(14, signData.landmarks_sequence.length - 1)];
 
-  if (frame.left_hand_features && frame0.left_hand_features) {
-    const sim1 = calculateCosineSimilarity(frame.left_hand_features, frame0.left_hand_features);
+  if (frame.right_hand_features && frame0.right_hand_features) {
+    const sim1 = calculateCosineSimilarity(frame.right_hand_features, frame0.right_hand_features);
     console.log(`   프레임 10 vs 0: ${(sim1 * 100).toFixed(1)}%`);
   }
 
-  if (frame.left_hand_features && frame20.left_hand_features) {
-    const sim2 = calculateCosineSimilarity(frame.left_hand_features, frame20.left_hand_features);
-    console.log(`   프레임 10 vs 20: ${(sim2 * 100).toFixed(1)}%`);
+  if (frame.right_hand_features && frame5.right_hand_features) {
+    const sim2 = calculateCosineSimilarity(frame.right_hand_features, frame5.right_hand_features);
+    console.log(`   프레임 10 vs 5: ${(sim2 * 100).toFixed(1)}%`);
   }
 
-  if (frame.left_hand_features && frame40.left_hand_features) {
-    const sim3 = calculateCosineSimilarity(frame.left_hand_features, frame40.left_hand_features);
-    console.log(`   프레임 10 vs 40: ${(sim3 * 100).toFixed(1)}%`);
+  if (frame.right_hand_features && frame14.right_hand_features) {
+    const sim3 = calculateCosineSimilarity(frame.right_hand_features, frame14.right_hand_features);
+    console.log(`   프레임 10 vs 14: ${(sim3 * 100).toFixed(1)}%`);
   }
 }
 

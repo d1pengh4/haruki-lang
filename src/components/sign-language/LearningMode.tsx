@@ -99,13 +99,6 @@ export default function LearningMode({ signs }: LearningModeProps) {
       return;
     }
 
-    const duplicate = signs.find(s => s.name.toLowerCase() === name.toLowerCase());
-    if (duplicate) {
-      setStatus({ type: 'error', message: '같은 이름의 수화가 이미 존재합니다.' });
-      setTimeout(() => setStatus(null), 3000);
-      return;
-    }
-
     if (!recordedSequence || recordedSequence.length < 5) {
       setStatus({ type: 'error', message: '수화 동작을 먼저 녹화해주세요. (최소 0.5초 이상)' });
       setTimeout(() => setStatus(null), 3000);
