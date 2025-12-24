@@ -1,24 +1,26 @@
 #!/usr/bin/env node
 
 /**
- * 비디오 파일을 직접 처리하여 Supabase에 저장하는 스크립트
+ * 대규모 비디오 배치 처리 및 Supabase 저장 스크립트
  *
- * 이 스크립트는:
- * 1. 02 폴더의 비디오 파일을 읽고
- * 2. 17 폴더의 JSON에서 수화 이름을 가져오고
- * 3. FFmpeg로 프레임을 추출하고
- * 4. 브라우저에서 MediaPipe로 랜드마크를 추출하고
- * 5. Supabase에 저장합니다
+ * 기능:
+ * 1. 02 폴더의 모든/지정된 MP4 파일 스캔
+ * 2. 17 폴더의 JSON 메타데이터에서 수화 단어명 추출
+ * 3. FFmpeg로 프레임 추출 (10fps)
+ * 4. Puppeteer + MediaPipe로 랜드마크 및 특징 벡터 추출 (src/lib/featureExtraction.ts 로직 동기화)
+ * 5. Supabase에 데이터 저장
  *
  * 사용법:
- *   node scripts/process-videos.mjs [시작번호] [끝번호]
- *   node scripts/process-videos.mjs 1501 1505
+ *   node scripts/process-videos.mjs                   # 모든 파일 처리
+ *   node scripts/process-videos.mjs --start 1501      # 1501번부터 끝까지
+ *   node scripts/process-videos.mjs --count 5         # 처음 5개만 (테스트용)
+ *   node scripts/process-videos.mjs --start 1501 --count 10
  */
 
 import puppeteer from 'puppeteer';
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync, existsSync, readdirSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, existsSync, readdirSync, mkdirSync, rmSync } from 'fs';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import dotenv from 'dotenv';
@@ -42,7 +44,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const VIDEO_DIR = join(rootDir, '02');
 const JSON_DIR = join(rootDir, '17');
-const TEMP_DIR = join(rootDir, 'temp_frames');
+const TEMP_DIR = join(rootDir, 'temp_frames_batch');
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
@@ -51,465 +53,436 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
  */
 async function extractFrames(videoPath, outputDir, fps = 10) {
   return new Promise((resolve, reject) => {
-    // 출력 디렉토리 생성
     if (!existsSync(outputDir)) {
       mkdirSync(outputDir, { recursive: true });
     }
 
     const ffmpeg = spawn('ffmpeg', [
       '-i', videoPath,
-      '-vf', `fps=${fps}`,
+      '-vf', `fps=${fps},scale=640:480`, // 해상도 고정 및 fps 설정
       '-q:v', '2',
       '-f', 'image2',
       join(outputDir, 'frame_%04d.jpg')
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { stdio: ['ignore', 'ignore', 'pipe'] }); // stdout 무시, stderr만 캡처
 
     let stderr = '';
-
-    ffmpeg.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
+    ffmpeg.stderr.on('data', (data) => stderr += data.toString());
 
     ffmpeg.on('close', (code) => {
       if (code === 0) {
         try {
           const frames = readdirSync(outputDir)
             .filter(f => f.startsWith('frame_') && f.endsWith('.jpg'))
-            .sort();
-          resolve(frames.map(f => join(outputDir, f)));
+            .sort()
+            .map(f => join(outputDir, f));
+          resolve(frames);
         } catch (err) {
           reject(err);
         }
       } else {
-        reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
+        reject(new Error(`FFmpeg error (code ${code}): ${stderr}`));
       }
     });
 
-    ffmpeg.on('error', (err) => {
-      reject(err);
-    });
+    ffmpeg.on('error', reject);
   });
 }
 
 /**
- * 브라우저에서 MediaPipe로 프레임 처리
+ * 브라우저 컨텍스트 초기화 및 특징 추출 함수 주입
+ * src/lib/featureExtraction.ts 의 로직과 정확히 일치해야 함
  */
-async function processFramesWithMediaPipe(framePaths, browser) {
-  const page = await browser.newPage();
+async function injectFeatureExtractionLogic(page) {
+  await page.evaluate(() => {
+    // 유틸리티 함수
+    window.euclideanDistance = (p1, p2) => {
+      if (!p1 || !p2) return 0;
+      const dx = p1.x - p2.x;
+      const dy = p1.y - p2.y;
+      const dz = p1.z - p2.z;
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    };
 
-  try {
-    // MediaPipe 초기화를 위한 HTML 페이지 생성
-    const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-</head>
-<body>
-  <canvas id="canvas" width="640" height="480"></canvas>
-</body>
-</html>
-`;
+    window.calculateAngle = (p1, p2, p3) => {
+      if (!p1 || !p2 || !p3) return 0;
+      const v1 = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
+      const v2 = { x: p3.x - p2.x, y: p3.y - p2.y, z: p3.z - p2.z };
+      const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+      const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
+      const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
+      if (len1 === 0 || len2 === 0) return 0;
+      const cosAngle = Math.max(-1, Math.min(1, dot / (len1 * len2)));
+      return Math.acos(cosAngle);
+    };
 
-    await page.setContent(htmlContent);
-    await delay(1000);
+    window.getHandScale = (handLandmarks) => {
+      const wrist = handLandmarks[0];
+      const middleFingerTip = handLandmarks[12];
+      return window.euclideanDistance(wrist, middleFingerTip);
+    };
 
-    // MediaPipe 초기화
-    await page.evaluate(() => {
-      return new Promise((resolve) => {
-        window.holistic = new window.Holistic({
-          locateFile: (file) => {
-            return \`https://cdn.jsdelivr.net/npm/@mediapipe/holistic/\${file}\`;
-          }
-        });
+    window.calculateFingerExtension = (handLandmarks, tipIdx, baseIdx, palmCenter, handScale) => {
+      const tipToPalm = window.euclideanDistance(handLandmarks[tipIdx], palmCenter);
+      const baseToPalm = window.euclideanDistance(handLandmarks[baseIdx], palmCenter);
+      const normalizedTip = tipToPalm / handScale;
+      const normalizedBase = baseToPalm / handScale;
+      const extension = normalizedTip / Math.max(normalizedBase, 0.01);
+      return Math.max(0, Math.min(1, (extension - 0.8) / 0.6));
+    };
 
-        window.holistic.setOptions({
-          modelComplexity: 1,
-          smoothLandmarks: true,
-          enableSegmentation: false,
-          smoothSegmentation: false,
-          refineFaceLandmarks: true,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5
-        });
+    // 손 특징 추출 (flattenHandFeatures 로직 포함)
+    window.extractHandFeaturesVector = (handLandmarks) => {
+      if (!handLandmarks || handLandmarks.length < 21) return null;
 
-        window.resultsArray = [];
-        window.holistic.onResults((results) => {
-          window.resultsArray.push(results);
-        });
-
-        window.holisticReady = true;
-        resolve();
-      });
-    });
-
-    console.log('  🤖 MediaPipe 초기화 완료');
-
-    // 특징 추출 함수를 브라우저에 주입
-    await page.evaluate(() => {
-      window.euclideanDistance = function(p1, p2) {
-        const dx = p1.x - p2.x;
-        const dy = p1.y - p2.y;
-        const dz = p1.z - p2.z;
-        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const palmCenter = {
+        x: (handLandmarks[0].x + handLandmarks[5].x + handLandmarks[17].x) / 3,
+        y: (handLandmarks[0].y + handLandmarks[5].y + handLandmarks[17].y) / 3,
+        z: (handLandmarks[0].z + handLandmarks[5].z + handLandmarks[17].z) / 3
       };
 
-      window.calculateAngle = function(p1, p2, p3) {
-        const v1 = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
-        const v2 = { x: p3.x - p2.x, y: p3.y - p2.y, z: p3.z - p2.z };
-        const dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
-        const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
-        const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
-        if (len1 === 0 || len2 === 0) return 0;
-        return Math.acos(Math.max(-1, Math.min(1, dot / (len1 * len2))));
+      const handScale = window.getHandScale(handLandmarks);
+      if (handScale === 0) return null;
+
+      const fingers = {
+        thumb: { tip: 4, base: 2, mcp: 1 },
+        index: { tip: 8, base: 6, mcp: 5 },
+        middle: { tip: 12, base: 10, mcp: 9 },
+        ring: { tip: 16, base: 14, mcp: 13 },
+        pinky: { tip: 20, base: 18, mcp: 17 }
       };
 
-      window.extractHandFeatures = function(handLandmarks) {
-        if (!handLandmarks || handLandmarks.length < 21) return null;
+      // 1. Finger Extensions (5)
+      const fingerExtensions = [
+        window.calculateFingerExtension(handLandmarks, 4, 1, palmCenter, handScale),
+        window.calculateFingerExtension(handLandmarks, 8, 5, palmCenter, handScale),
+        window.calculateFingerExtension(handLandmarks, 12, 9, palmCenter, handScale),
+        window.calculateFingerExtension(handLandmarks, 16, 13, palmCenter, handScale),
+        window.calculateFingerExtension(handLandmarks, 20, 17, palmCenter, handScale)
+      ];
 
-        const palmCenter = {
-          x: (handLandmarks[0].x + handLandmarks[5].x + handLandmarks[17].x) / 3,
-          y: (handLandmarks[0].y + handLandmarks[5].y + handLandmarks[17].y) / 3,
-          z: (handLandmarks[0].z + handLandmarks[5].z + handLandmarks[17].z) / 3
-        };
-
-        const handScale = window.euclideanDistance(handLandmarks[0], handLandmarks[12]);
-        if (handScale === 0) return null;
-
-        const calcFingerExt = (tipIdx, mcpIdx) => {
-          const tipDist = window.euclideanDistance(handLandmarks[tipIdx], palmCenter);
-          const baseDist = window.euclideanDistance(handLandmarks[mcpIdx], palmCenter);
-          const ext = (tipDist / handScale) / Math.max(baseDist / handScale, 0.01);
-          return Math.max(0, Math.min(1, (ext - 0.8) / 0.6));
-        };
-
-        const fingerExtensions = [
-          calcFingerExt(4, 1), calcFingerExt(8, 5), calcFingerExt(12, 9),
-          calcFingerExt(16, 13), calcFingerExt(20, 17)
-        ];
-
-        const fingerAngles = [];
-        [[1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14,15,16], [17,18,19,20]].forEach(bones => {
-          for (let i = 0; i < bones.length - 2; i++) {
-            fingerAngles.push(window.calculateAngle(
-              handLandmarks[bones[i]],
-              handLandmarks[bones[i+1]],
-              handLandmarks[bones[i+2]]
-            ));
-          }
-        });
-
-        const fingerTips = [4, 8, 12, 16, 20];
-        const fingerTipDistances = [];
-        for (let i = 0; i < fingerTips.length; i++) {
-          for (let j = i + 1; j < fingerTips.length; j++) {
-            fingerTipDistances.push(
-              window.euclideanDistance(handLandmarks[fingerTips[i]], handLandmarks[fingerTips[j]]) / handScale
-            );
-          }
+      // 2. Finger Angles (10 - based on code logic not comment)
+      const fingerAngles = [];
+      const fingerBones = [
+        [1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]
+      ];
+      fingerBones.forEach(bones => {
+        for (let i = 0; i < bones.length - 2; i++) {
+          fingerAngles.push(window.calculateAngle(handLandmarks[bones[i]], handLandmarks[bones[i + 1]], handLandmarks[bones[i + 2]]));
         }
+      });
 
-        const handShapeRatios = [
-          window.euclideanDistance(handLandmarks[5], handLandmarks[17]) / handScale,
-          window.euclideanDistance(handLandmarks[0], handLandmarks[12]) / handScale,
-          window.euclideanDistance(handLandmarks[4], handLandmarks[8]) / handScale
-        ];
-
-        const fingerBendAngles = [
-          window.calculateAngle(handLandmarks[2], handLandmarks[3], handLandmarks[4]),
-          window.calculateAngle(handLandmarks[5], handLandmarks[7], handLandmarks[8]),
-          window.calculateAngle(handLandmarks[9], handLandmarks[11], handLandmarks[12]),
-          window.calculateAngle(handLandmarks[13], handLandmarks[15], handLandmarks[16]),
-          window.calculateAngle(handLandmarks[17], handLandmarks[19], handLandmarks[20])
-        ];
-
-        return [
-          ...fingerExtensions, ...fingerAngles, ...fingerTipDistances,
-          ...handShapeRatios, ...fingerBendAngles
-        ];
-      };
-
-      window.extractPoseFeatures = function(poseLandmarks) {
-        if (!poseLandmarks || poseLandmarks.length < 33) return null;
-
-        const leftShoulder = poseLandmarks[11];
-        const rightShoulder = poseLandmarks[12];
-        const leftElbow = poseLandmarks[13];
-        const rightElbow = poseLandmarks[14];
-        const leftWrist = poseLandmarks[15];
-        const rightWrist = poseLandmarks[16];
-
-        const shoulderWidth = window.euclideanDistance(leftShoulder, rightShoulder);
-        if (shoulderWidth === 0) return null;
-
-        const torsoCenter = {
-          x: (leftShoulder.x + rightShoulder.x) / 2,
-          y: (leftShoulder.y + rightShoulder.y) / 2,
-          z: (leftShoulder.z + rightShoulder.z) / 2
-        };
-
-        return [
-          window.calculateAngle(leftShoulder, leftElbow, leftWrist),
-          window.calculateAngle(rightShoulder, rightElbow, rightWrist),
-          (leftWrist.x - torsoCenter.x) / shoulderWidth,
-          (leftWrist.y - torsoCenter.y) / shoulderWidth,
-          (leftWrist.z - torsoCenter.z) / shoulderWidth,
-          (rightWrist.x - torsoCenter.x) / shoulderWidth,
-          (rightWrist.y - torsoCenter.y) / shoulderWidth,
-          (rightWrist.z - torsoCenter.z) / shoulderWidth,
-          window.euclideanDistance(leftWrist, rightWrist) / shoulderWidth
-        ];
-      };
-    });
-
-    // 각 프레임 처리
-    const landmarksSequence = [];
-
-    for (let i = 0; i < framePaths.length; i++) {
-      const framePath = framePaths[i];
-      const timestamp = (i / 10) * 1000; // 10fps 기준
-
-      // 이미지를 base64로 읽기
-      const imageData = readFileSync(framePath).toString('base64');
-
-      // 브라우저에서 이미지 처리
-      const landmarks = await page.evaluate(async (imgData, ts) => {
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
-          img.src = 'data:image/jpeg;base64,' + imgData;
-        });
-
-        const canvas = document.getElementById('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-
-        // MediaPipe 처리
-        window.resultsArray = [];
-        await window.holistic.send({ image: canvas });
-
-        // 결과 대기
-        await new Promise(r => setTimeout(r, 50));
-
-        const results = window.resultsArray[window.resultsArray.length - 1];
-        if (!results) return null;
-
-        const leftHandFeatures = results.leftHandLandmarks
-          ? window.extractHandFeatures(results.leftHandLandmarks)
-          : null;
-        const rightHandFeatures = results.rightHandLandmarks
-          ? window.extractHandFeatures(results.rightHandLandmarks)
-          : null;
-        const poseFeatures = results.poseLandmarks
-          ? window.extractPoseFeatures(results.poseLandmarks)
-          : null;
-
-        return {
-          timestamp: ts,
-          pose: results.poseLandmarks || null,
-          left_hand: results.leftHandLandmarks || null,
-          right_hand: results.rightHandLandmarks || null,
-          face: results.faceLandmarks || null,
-          left_hand_features: leftHandFeatures,
-          right_hand_features: rightHandFeatures,
-          pose_features: poseFeatures
-        };
-      }, imageData, timestamp);
-
-      if (landmarks) {
-        landmarksSequence.push(landmarks);
+      // 3. Finger Tip Distances (10)
+      const fingerTips = [4, 8, 12, 16, 20];
+      const fingerTipDistances = [];
+      for (let i = 0; i < fingerTips.length; i++) {
+        for (let j = i + 1; j < fingerTips.length; j++) {
+          fingerTipDistances.push(window.euclideanDistance(handLandmarks[fingerTips[i]], handLandmarks[fingerTips[j]]) / handScale);
+        }
       }
 
-      // 진행상황 표시
-      if ((i + 1) % 10 === 0 || i === framePaths.length - 1) {
-        process.stdout.write(`\r  진행: ${i + 1}/${framePaths.length} 프레임`);
-      }
-    }
-    console.log('');
+      // 4. Hand Shape Ratios (3)
+      const handWidth = window.euclideanDistance(handLandmarks[5], handLandmarks[17]);
+      const handLength = window.euclideanDistance(handLandmarks[0], handLandmarks[12]);
+      const thumbSpread = window.euclideanDistance(handLandmarks[4], handLandmarks[8]);
+      const handShapeRatios = [
+        handWidth / handScale,
+        handLength / handScale,
+        thumbSpread / handScale
+      ];
 
-    return landmarksSequence;
+      // 5. Finger Bend Angles (5)
+      const fingerBendAngles = [
+        window.calculateAngle(handLandmarks[2], handLandmarks[3], handLandmarks[4]),
+        window.calculateAngle(handLandmarks[5], handLandmarks[7], handLandmarks[8]),
+        window.calculateAngle(handLandmarks[9], handLandmarks[11], handLandmarks[12]),
+        window.calculateAngle(handLandmarks[13], handLandmarks[15], handLandmarks[16]),
+        window.calculateAngle(handLandmarks[17], handLandmarks[19], handLandmarks[20])
+      ];
 
-  } finally {
-    await page.close();
-  }
+      // Flatten
+      return [
+        ...fingerExtensions,
+        ...fingerAngles,
+        ...fingerTipDistances,
+        ...handShapeRatios,
+        ...fingerBendAngles
+      ];
+    };
+
+    // 포즈 특징 추출
+    window.extractPoseFeaturesVector = (poseLandmarks) => {
+      if (!poseLandmarks || poseLandmarks.length < 33) return null;
+
+      const leftShoulder = poseLandmarks[11];
+      const rightShoulder = poseLandmarks[12];
+      const leftElbow = poseLandmarks[13];
+      const rightElbow = poseLandmarks[14];
+      const leftWrist = poseLandmarks[15];
+      const rightWrist = poseLandmarks[16];
+
+      const shoulderWidth = window.euclideanDistance(leftShoulder, rightShoulder);
+      if (shoulderWidth === 0) return null;
+
+      const torsoCenter = {
+        x: (leftShoulder.x + rightShoulder.x) / 2,
+        y: (leftShoulder.y + rightShoulder.y) / 2,
+        z: (leftShoulder.z + rightShoulder.z) / 2
+      };
+
+      return [
+        window.calculateAngle(leftShoulder, leftElbow, leftWrist),
+        window.calculateAngle(rightShoulder, rightElbow, rightWrist),
+        (leftWrist.x - torsoCenter.x) / shoulderWidth,
+        (leftWrist.y - torsoCenter.y) / shoulderWidth,
+        (leftWrist.z - torsoCenter.z) / shoulderWidth,
+        (rightWrist.x - torsoCenter.x) / shoulderWidth,
+        (rightWrist.y - torsoCenter.y) / shoulderWidth,
+        (rightWrist.z - torsoCenter.z) / shoulderWidth,
+        window.euclideanDistance(leftWrist, rightWrist) / shoulderWidth
+      ];
+    };
+  });
 }
 
-/**
- * 비디오 처리
- */
-async function processVideo(videoNumber, browser) {
-  const videoPath = join(VIDEO_DIR, `${videoNumber}.mp4`);
-  const jsonPath = join(JSON_DIR, `${videoNumber}.json`);
-
-  // 파일 존재 확인
-  if (!existsSync(videoPath)) {
-    console.log(`⏭️  ${videoNumber}: 비디오 파일 없음`);
-    return null;
-  }
-
-  if (!existsSync(jsonPath)) {
-    console.log(`⏭️  ${videoNumber}: JSON 파일 없음`);
-    return null;
-  }
-
-  // JSON 파일 읽기
-  const jsonData = JSON.parse(readFileSync(jsonPath, 'utf-8'));
-  const signName = jsonData.data[0]?.attributes[0]?.name;
-  const duration = jsonData.metaData?.duration || 0;
-
-  if (!signName) {
-    console.log(`⏭️  ${videoNumber}: 수화 이름 없음`);
-    return null;
-  }
-
-  console.log(`\n🎬 처리 중: ${videoNumber} - ${signName}`);
-
-  // 임시 프레임 디렉토리
-  const frameDir = join(TEMP_DIR, `${videoNumber}`);
-  if (existsSync(frameDir)) {
-    rmSync(frameDir, { recursive: true, force: true });
-  }
-  mkdirSync(frameDir, { recursive: true });
-
-  try {
-    // 프레임 추출
-    console.log(`  📹 프레임 추출 중...`);
-    const framePaths = await extractFrames(videoPath, frameDir, 10);
-    console.log(`  ✅ ${framePaths.length}개 프레임 추출됨`);
-
-    // 랜드마크 추출
-    console.log(`  🤖 랜드마크 추출 중...`);
-    const landmarksSequence = await processFramesWithMediaPipe(framePaths, browser);
-
-    // 손이 감지된 프레임 확인
-    const framesWithHands = landmarksSequence.filter(
-      f => f.left_hand_features || f.right_hand_features
-    ).length;
-
-    console.log(`  👋 손 감지: ${framesWithHands}/${landmarksSequence.length} 프레임`);
-
-    if (framesWithHands < 5) {
-      console.log(`  ⚠️  손 감지 부족, 건너뜀`);
-      return null;
-    }
-
-    // Supabase에 저장
-    console.log(`  💾 Supabase에 저장 중...`);
-    const { data, error } = await supabase
-      .from('sign_language')
-      .insert({
-        name: signName,
-        landmarks_sequence: landmarksSequence,
-        duration: duration
-      })
-      .select();
-
-    if (error) {
-      console.error(`  ❌ 저장 실패:`, error.message);
-      return null;
-    }
-
-    console.log(`  ✅ 저장 완료: ${signName}`);
-    return data[0];
-
-  } catch (error) {
-    console.error(`  ❌ 오류:`, error.message);
-    return null;
-  } finally {
-    // 임시 파일 정리
-    if (existsSync(frameDir)) {
-      rmSync(frameDir, { recursive: true, force: true });
-    }
-  }
-}
-
-/**
- * 메인 함수
- */
-async function main() {
-  const args = process.argv.slice(2);
-  let startNum = 1501;
-  let endNum = 1510;
-
-  if (args.length >= 2) {
-    startNum = parseInt(args[0]);
-    endNum = parseInt(args[1]);
-  } else if (args.length === 1) {
-    startNum = parseInt(args[0]);
-    endNum = startNum;
-  }
-
-  console.log('🚀 배치 학습 시작');
-  console.log(`📂 비디오 범위: ${startNum} ~ ${endNum}`);
-  console.log(`📍 Supabase URL: ${supabaseUrl}`);
-
-  // Temp 디렉토리 생성
-  if (!existsSync(TEMP_DIR)) {
-    mkdirSync(TEMP_DIR, { recursive: true });
-  }
-
-  // Puppeteer 브라우저 실행
-  console.log('\n🌐 브라우저 실행 중...');
+async function initBrowser() {
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: true, // "new" is default now
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
-  console.log('✅ 브라우저 준비 완료\n');
+  const page = await browser.newPage();
 
-  // 진행 상황
-  let processed = 0;
-  let success = 0;
-  let failed = 0;
-  const failedList = [];
+  // MediaPipe 라이브러리 로드
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+      <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    </head>
+    <body><canvas id="canvas"></canvas></body>
+    </html>
+  `;
+  await page.setContent(htmlContent);
 
-  // 처리
-  for (let num = startNum; num <= endNum; num++) {
-    const numStr = num.toString().padStart(4, '0');
-    const result = await processVideo(numStr, browser);
+  // 로직 주입
+  await injectFeatureExtractionLogic(page);
 
-    processed++;
-    if (result) {
-      success++;
-    } else {
-      failed++;
-      failedList.push(numStr);
-    }
+  // MediaPipe 초기화
+  await page.evaluate(async () => {
+    window.holistic = new window.Holistic({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
+    });
+    window.holistic.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
 
-    // 진행상황 요약
-    console.log(`\n📊 진행: ${processed}/${endNum - startNum + 1} | ✅ 성공: ${success} | ❌ 실패: ${failed}`);
+    window.resultsQueue = [];
+    window.holistic.onResults(results => window.resultsQueue.push(results));
 
-    await delay(500);
-  }
+    // 초기화 대기 (모델 로드)
+    await new Promise(r => setTimeout(r, 1000));
+  });
 
-  // 브라우저 종료
-  await browser.close();
-
-  // 최종 정리
-  console.log('\n\n🎉 배치 학습 완료!');
-  console.log(`총 처리: ${processed}`);
-  console.log(`성공: ${success}`);
-  console.log(`실패: ${failed}`);
-
-  if (failedList.length > 0) {
-    console.log(`\n실패 목록: ${failedList.join(', ')}`);
-  }
-
-  // Temp 디렉토리 정리
-  if (existsSync(TEMP_DIR)) {
-    rmSync(TEMP_DIR, { recursive: true, force: true });
-  }
-
-  process.exit(0);
+  return { browser, page };
 }
 
-main().catch((error) => {
-  console.error('❌치명적 오류:', error);
-  process.exit(1);
-});
+async function processVideo(videoFile, page) {
+  const videoId = videoFile.replace('.mp4', '');
+  const videoPath = join(VIDEO_DIR, videoFile);
+  const jsonPath = join(JSON_DIR, `${videoId}.json`);
+
+  if (!existsSync(jsonPath)) {
+    console.log(`⚠️  JSON 메타데이터 없음: ${videoId}`);
+    return { success: false, reason: 'no_json' };
+  }
+
+  // JSON 파싱
+  let signName;
+  try {
+    const jsonContent = JSON.parse(readFileSync(jsonPath, 'utf-8'));
+    signName = jsonContent.data?.[0]?.attributes?.[0]?.name;
+  } catch (e) {
+    return { success: false, reason: 'json_parse_error' };
+  }
+
+  if (!signName) {
+    return { success: false, reason: 'no_sign_name' };
+  }
+
+  console.log(`\n🎬 처리 중: ${videoId} - ${signName}`);
+
+  // DB 중복 확인 (선택사항 - 덮어쓰기 여부)
+  // 여기서는 중복되어도 새로 Insert 하거나, 기존 것을 삭제하고 다시 넣는 정책이 필요
+  // 성능을 위해 일단 스킵하거나, 나중에 unique constraint 에러 처리
+
+  // 프레임 추출
+  const frameDir = join(TEMP_DIR, videoId);
+  if (existsSync(frameDir)) rmSync(frameDir, { recursive: true, force: true });
+
+  let framePaths = [];
+  try {
+    framePaths = await extractFrames(videoPath, frameDir);
+  } catch (e) {
+    console.error(`  ❌ FFmpeg 오류: ${e.message}`);
+    return { success: false, reason: 'ffmpeg_error' };
+  }
+
+  if (framePaths.length === 0) {
+    return { success: false, reason: 'no_frames' };
+  }
+
+  // MediaPipe 처리
+  const landmarksSequence = [];
+
+  for (let i = 0; i < framePaths.length; i++) {
+    const framePath = framePaths[i];
+    const timestamp = i * 100; // 10fps = 100ms interval
+
+    // 이미지 읽기 & base64
+    const imgBuffer = readFileSync(framePath);
+    const imgBase64 = imgBuffer.toString('base64');
+
+    // 브라우저로 전송 및 처리
+    const result = await page.evaluate(async (b64, ts) => {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = 'data:image/jpeg;base64,' + b64;
+      });
+
+      const canvas = document.getElementById('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      window.resultsQueue = []; // 큐 초기화
+      await window.holistic.send({ image: img });
+
+      // 결과 대기 (약간의 폴링)
+      let attempts = 0;
+      while (window.resultsQueue.length === 0 && attempts < 50) {
+        await new Promise(r => setTimeout(r, 10));
+        attempts++;
+      }
+
+      const res = window.resultsQueue[0];
+      if (!res) return null;
+
+      const lhVec = res.leftHandLandmarks ? window.extractHandFeaturesVector(res.leftHandLandmarks) : null;
+      const rhVec = res.rightHandLandmarks ? window.extractHandFeaturesVector(res.rightHandLandmarks) : null;
+      const poseVec = res.poseLandmarks ? window.extractPoseFeaturesVector(res.poseLandmarks) : null;
+
+      return {
+        timestamp: ts,
+        pose: res.poseLandmarks || null,
+        left_hand: res.leftHandLandmarks || null,
+        right_hand: res.rightHandLandmarks || null,
+        face: res.faceLandmarks || null,
+        left_hand_features: lhVec,
+        right_hand_features: rhVec,
+        pose_features: poseVec
+      };
+    }, imgBase64, timestamp);
+
+    if (result) {
+      landmarksSequence.push(result);
+    }
+
+    if (i % 10 === 0) process.stdout.write('.');
+  }
+  process.stdout.write('\n');
+
+  // 유효성 검사 (손이 한 번이라도 감지되었는가?)
+  const handsDetected = landmarksSequence.some(l => l.left_hand_features || l.right_hand_features);
+  if (!handsDetected) {
+    console.log('  ⚠️  손이 감지되지 않음 (저장 건너뜀)');
+    // return { success: false, reason: 'no_hands_detected' }; 
+    // 학습 데이터 퀄리티에 따라 손이 안보이는 프레임이 많을 수도 있지만, 전체 영상에서 한번도 안나오면 문제.
+  }
+
+  // DB 저장
+  const { error } = await supabase.from('sign_languages').insert({
+    name: signName,
+    landmarks_sequence: landmarksSequence,
+    duration: framePaths.length * 100 // ms
+  });
+
+  // 임시 파일 정리
+  rmSync(frameDir, { recursive: true, force: true });
+
+  if (error) {
+    console.error(`  ❌ DB 저장 실패: ${error.message}`);
+    return { success: false, reason: 'db_error' };
+  }
+
+  console.log(`  ✅ 저장 완료(${landmarksSequence.length} 프레임)`);
+  return { success: true };
+}
+
+async function main() {
+  // 인자 파싱
+  const args = process.argv.slice(2);
+  let startId = null;
+  let maxCount = Infinity;
+
+  const startIdx = args.indexOf('--start');
+  if (startIdx !== -1) startId = parseInt(args[startIdx + 1]);
+
+  const countIdx = args.indexOf('--count');
+  if (countIdx !== -1) maxCount = parseInt(args[countIdx + 1]);
+
+  console.log('🚀 배치 학습 프로세스 시작');
+  console.log(`📂 Video Directory: ${VIDEO_DIR}`);
+
+  if (!existsSync(TEMP_DIR)) mkdirSync(TEMP_DIR);
+
+  // 파일 목록 가져오기
+  let files = readdirSync(VIDEO_DIR)
+    .filter(f => f.endsWith('.mp4'))
+    .sort((a, b) => parseInt(a) - parseInt(b));
+
+  // 필터링
+  if (startId) {
+    files = files.filter(f => parseInt(f) >= startId);
+  }
+  if (files.length > maxCount) {
+    files = files.slice(0, maxCount);
+  }
+
+  if (files.length === 0) {
+    console.log('처리할 파일이 없습니다.');
+    return;
+  }
+
+  console.log(`대상 파일: ${files.length}개(${files[0]} ~${files[files.length - 1]})`);
+
+  // 브라우저 시작
+  const { browser, page } = await initBrowser();
+  console.log('🌐 브라우저/MediaPipe 초기화 완료');
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const file of files) {
+    try {
+      const result = await processVideo(file, page);
+      if (result.success) successCount++;
+      else failCount++;
+    } catch (e) {
+      console.error(`❌ 처리 중 예외 발생(${file}): `, e);
+      failCount++;
+    }
+    // 메모리 정리를 위해 주기적 처리? (Puppeteer는 오래 돌면 무거워질 수 있음)
+  }
+
+  await browser.close();
+  rmSync(TEMP_DIR, { recursive: true, force: true });
+
+  console.log(`\n🎉 완료! 성공: ${successCount}, 실패: ${failCount}`);
+}
+
+main().catch(console.error);
