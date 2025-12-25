@@ -781,30 +781,29 @@ git push origin feature/AmazingFeature
 
 ## 📝 라이선스
 
-MIT License - 자유롭게 사용, 수정, 배포 가능합니다.
+**All Rights Reserved** - 이 소프트웨어의 모든 권리는 저작권자에게 있습니다.
 
 ```
-MIT License
+Copyright (c) 2024-2025 Euro Choi. All Rights Reserved.
 
-Copyright (c) 2024 Euro Choi
+이 소프트웨어와 관련 문서 파일(이하 "소프트웨어")의 사용, 복사, 수정, 병합,
+게시, 배포, 재라이선스 및 판매는 저작권자의 명시적 서면 허가 없이 금지됩니다.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+본 소프트웨어는 "있는 그대로" 제공되며, 명시적이거나 묵시적인 어떠한 종류의
+보증도 제공하지 않습니다. 저작권자는 소프트웨어의 사용 또는 기타 거래로 인해
+발생하는 어떠한 청구, 손해 또는 기타 책임에 대해서도 책임을 지지 않습니다.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+무단 사용, 복제, 배포 시 법적 조치를 받을 수 있습니다.
+
+This software and associated documentation files (the "Software") may not be
+used, copied, modified, merged, published, distributed, sublicensed, or sold
+without the express written permission of the copyright holder.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+Unauthorized use, reproduction, or distribution may result in legal action.
 ```
 
 ---
