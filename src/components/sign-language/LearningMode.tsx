@@ -18,15 +18,15 @@ interface LearningModeProps {
 
 export default function LearningMode({ signs }: LearningModeProps) {
   const [name, setName] = useState('');
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordedSequence, setRecordedSequence] = useState([]);
+  const [recordedSequence, setRecordedSequence] = useState<any[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [currentLandmarks, setCurrentLandmarks] = useState(null);
-  const [thumbnail, setThumbnail] = useState(null);
+  const [currentLandmarks, setCurrentLandmarks] = useState<any | null>(null);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
 
-  const recordingTimerRef = useRef(null);
-  const startTimeRef = useRef(null);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<number | null>(null);
   const queryClient = useQueryClient();
 
   const saveMutation = useMutation({
@@ -46,10 +46,8 @@ export default function LearningMode({ signs }: LearningModeProps) {
   });
 
   useEffect(() => {
-    if (isRecording && currentLandmarks) {
+    if (isRecording && currentLandmarks && startTimeRef.current) {
       const timestamp = Date.now() - startTimeRef.current;
-
-      // 특징 추출 시 이미 위치/크기/회전 불변 정규화됨
       setRecordedSequence(prev => [...prev, {
         timestamp,
         pose: currentLandmarks.pose || null,
@@ -87,39 +85,31 @@ export default function LearningMode({ signs }: LearningModeProps) {
     }
   };
 
-  const captureThumbnail = () => {
-    // 카메라 모드에서는 썸네일을 캡처할 수 없으므로 null 반환
-    return null;
-  };
-
   const handleSave = () => {
     if (!name.trim()) {
       setStatus({ type: 'error', message: '수화 이름을 입력해주세요.' });
       setTimeout(() => setStatus(null), 3000);
       return;
     }
-
-    if (!recordedSequence || recordedSequence.length < 5) {
+    if (recordedSequence.length < 5) {
       setStatus({ type: 'error', message: '수화 동작을 먼저 녹화해주세요. (최소 0.5초 이상)' });
       setTimeout(() => setStatus(null), 3000);
       return;
     }
 
     const duration = recordedSequence[recordedSequence.length - 1].timestamp / 1000;
-    const thumbnailData = captureThumbnail();
-
     saveMutation.mutate({
       name: name.trim(),
       landmarks_sequence: recordedSequence,
       duration: duration,
-      thumbnail: thumbnailData
+      thumbnail: null // Thumbnail capture not implemented
     });
   };
 
   const hasDetection = currentLandmarks && (currentLandmarks.pose || currentLandmarks.leftHand || currentLandmarks.rightHand);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-foreground">
       <div className="grid md:grid-cols-2 gap-6">
         <div>
           <WebcamCapture
@@ -128,8 +118,8 @@ export default function LearningMode({ signs }: LearningModeProps) {
           />
         </div>
 
-        <Card className="shadow-xl">
-          <CardHeader className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+        <Card className="shadow-xl bg-card border-border">
+          <CardHeader className="bg-gradient-to-r from-primary/50 to-primary/20 text-primary-foreground">
             <CardTitle className="flex items-center gap-2">
               <Hand className="w-5 h-5" />
               수화 녹화하기
@@ -143,34 +133,30 @@ export default function LearningMode({ signs }: LearningModeProps) {
                 placeholder="예: 안녕하세요, 감사합니다, ㄱ, ㄴ 등"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="text-lg"
+                className="text-lg bg-background/50"
               />
             </div>
 
-            <div className="space-y-3 p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+            <div className="space-y-3 p-4 bg-primary/10 rounded-lg border-2 border-primary/20">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-purple-900">동작 녹화</span>
-                {isRecording && (
-                  <Badge className="bg-red-500 text-white animate-pulse">
-                    녹화 중
-                  </Badge>
-                )}
+                <span className="font-semibold text-primary-foreground/90">동작 녹화</span>
+                {isRecording && <Badge variant="destructive" className="animate-pulse">녹화 중</Badge>}
               </div>
 
               {isRecording && (
                 <div className="space-y-2">
-                  <div className="flex justify-between text-sm text-purple-700">
+                  <div className="flex justify-between text-sm text-primary/80">
                     <span>녹화 시간</span>
                     <span className="font-mono font-bold">{recordingTime.toFixed(1)}초</span>
                   </div>
-                  <Progress value={(recordingTime / 5) * 100} className="h-2" />
+                  <Progress value={(recordingTime / 5) * 100} className="h-2 bg-primary/20" />
                 </div>
               )}
 
               {recordedSequence.length > 0 && !isRecording && (
-                <Alert className="bg-green-50 border-green-200">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <AlertDescription className="text-green-800">
+                <Alert className="bg-green-900/30 text-green-300 border-green-700/50">
+                  <CheckCircle2 className="h-4 w-4 text-green-400" />
+                  <AlertDescription>
                     동작 녹화 완료! {recordedSequence.length}개 프레임, {(recordedSequence[recordedSequence.length - 1].timestamp / 1000).toFixed(1)}초
                   </AlertDescription>
                 </Alert>
@@ -178,19 +164,12 @@ export default function LearningMode({ signs }: LearningModeProps) {
 
               <div className="flex gap-2">
                 {!isRecording ? (
-                  <Button
-                    onClick={startRecording}
-                    disabled={!hasDetection}
-                    className="flex-1 bg-red-500 hover:bg-red-600"
-                  >
+                  <Button onClick={startRecording} disabled={!hasDetection} className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     <Circle className="w-4 h-4 mr-2 fill-current" />
                     녹화 시작
                   </Button>
                 ) : (
-                  <Button
-                    onClick={stopRecording}
-                    className="flex-1 bg-gray-800 hover:bg-gray-900"
-                  >
+                  <Button onClick={stopRecording} className="flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/80">
                     <StopCircle className="w-4 h-4 mr-2" />
                     녹화 중지
                   </Button>
@@ -199,9 +178,9 @@ export default function LearningMode({ signs }: LearningModeProps) {
             </div>
 
             {hasDetection ? (
-              <Alert className="bg-green-50 border-green-200">
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-                <AlertDescription className="text-green-800">
+              <Alert className="bg-green-900/30 text-green-300 border-green-700/50">
+                <CheckCircle2 className="h-4 w-4 text-green-400" />
+                <AlertDescription>
                   <div className="space-y-1">
                     <p className="font-semibold">감지된 랜드마크:</p>
                     {currentLandmarks.pose && <p>✓ 전신 포즈 ({currentLandmarks.pose.length}개)</p>}
@@ -212,40 +191,27 @@ export default function LearningMode({ signs }: LearningModeProps) {
                 </AlertDescription>
               </Alert>
             ) : (
-              <Alert className="bg-yellow-50 border-yellow-200">
-                <AlertCircle className="h-4 w-4 text-yellow-600" />
-                <AlertDescription className="text-yellow-800">
-                  카메라 앞에 서주세요
-                </AlertDescription>
+              <Alert variant="destructive" className="bg-yellow-900/20 border-yellow-700/50 text-yellow-300">
+                <AlertCircle className="h-4 w-4 text-yellow-400" />
+                <AlertDescription>카메라 앞에 서주세요</AlertDescription>
               </Alert>
             )}
 
             {status && (
-              <Alert className={status.type === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}>
-                {status.type === 'success' ? (
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                ) : (
-                  <AlertCircle className="h-4 w-4 text-red-600" />
-                )}
-                <AlertDescription className={status.type === 'success' ? 'text-green-800' : 'text-red-800'}>
-                  {status.message}
-                </AlertDescription>
+              <Alert className={status.type === 'success' ? 'bg-green-900/30 text-green-300 border-green-700/50' : 'bg-red-900/30 text-red-300 border-red-700/50'}>
+                {status.type === 'success' ? <CheckCircle2 className="h-4 w-4 text-green-400" /> : <AlertCircle className="h-4 w-4 text-red-400" />}
+                <AlertDescription>{status.message}</AlertDescription>
               </Alert>
             )}
 
-            <Button
-              onClick={handleSave}
-              disabled={saveMutation.isPending || isRecording || recordedSequence.length < 5}
-              className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700"
-              size="lg"
-            >
+            <Button onClick={handleSave} disabled={saveMutation.isPending || isRecording || recordedSequence.length < 5} className="w-full bg-primary text-primary-foreground hover:bg-primary/90" size="lg">
               <Save className="w-5 h-5 mr-2" />
               {saveMutation.isPending ? '저장 중...' : '수화 저장하기'}
             </Button>
 
-            <div className="pt-4 border-t">
-              <h4 className="font-semibold mb-2 text-sm text-gray-600">사용 방법</h4>
-              <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
+            <div className="pt-4 border-t border-border">
+              <h4 className="font-semibold mb-2 text-sm text-muted-foreground">사용 방법</h4>
+              <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
                 <li>카메라 앞에 서주세요</li>
                 <li>'녹화 시작'을 눌러 수화 동작을 녹화하세요</li>
                 <li>동작을 수행한 후 '녹화 중지'를 누르세요</li>

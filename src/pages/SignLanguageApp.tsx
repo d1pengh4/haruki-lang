@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BookOpen, Trash2, Hand } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,55 +9,77 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { BookOpen, Hand, Sparkles } from "lucide-react";
 
 import WebcamCapture from "@/components/sign-language/WebcamCapture";
 import LearningMode from "@/components/sign-language/LearningMode";
 import RecognitionMode from "@/components/sign-language/RecognitionMode";
+import SignList from "@/components/sign-language/SignList";
 
+// Constants for React Query
+const SIGNS_QUERY_KEY = ['signs'];
+
+/**
+ * Main application component for the Haruki Sign Language Translator.
+ * It orchestrates the webcam capture, real-time recognition, and sign language learning modes.
+ */
 export default function SignLanguageApp() {
+  /**
+   * State to control the visibility of the Learning Mode dialog.
+   */
   const [showLearningMode, setShowLearningMode] = useState(false);
+  /**
+   * State to hold the latest detected landmarks from the webcam.
+   */
   const [currentLandmarks, setCurrentLandmarks] = useState(null);
+  
   const queryClient = useQueryClient();
 
+  /**
+   * Fetches the list of all sign language data from the backend.
+   */
   const { data: signs = [], isLoading, error } = useQuery({
-    queryKey: ['signs'],
+    queryKey: SIGNS_QUERY_KEY,
     queryFn: async () => {
-      console.log('수화 데이터 로딩 시작...');
       const data = await base44.entities.SignLanguage.list('-created_at');
-      console.log('수화 데이터 로딩 완료:', data.length, '개');
       return data;
     },
     refetchOnMount: true,
     refetchOnWindowFocus: false,
-    staleTime: 0, // 항상 최신 데이터 가져오기
+    staleTime: 0, // Always fetch the latest data
     retry: 2,
   });
 
+  /**
+   * Mutation for deleting a sign language entry.
+   * Invalidates the signs query on success to refetch the list.
+   */
   const deleteMutation = useMutation({
     mutationFn: (id: string) => base44.entities.SignLanguage.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['signs'] });
+      queryClient.invalidateQueries({ queryKey: SIGNS_QUERY_KEY });
     },
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+    <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg">
-              <Hand className="w-9 h-9 text-white" />
+        <header className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4 relative">
+            <div className="w-16 h-16 bg-gradient-to-br from-primary to-cyan-500 rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30">
+              <Hand className="w-9 h-9 text-primary-foreground" />
             </div>
+            <Sparkles className="absolute -top-2 -right-2 w-6 h-6 text-cyan-400" />
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+          <h1 className="text-4xl font-bold text-foreground mb-2">
             한국 수화 번역기
           </h1>
-          <p className="text-gray-600 text-lg">
+          <p className="text-muted-foreground text-lg">
             실시간 수화 인식 및 문장 생성
           </p>
-        </div>
+        </header>
 
-        <div className="max-w-6xl mx-auto">
+        <main className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-3 gap-6 mb-6">
             <div className="lg:col-span-2">
               <WebcamCapture 
@@ -80,15 +100,15 @@ export default function SignLanguageApp() {
               <DialogTrigger asChild>
                 <Button 
                   size="lg"
-                  className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-lg"
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30"
                 >
                   <BookOpen className="w-5 h-5 mr-2" />
                   수화 학습하기
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-card border-border">
                 <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-2xl">
+                  <DialogTitle className="flex items-center gap-2 text-2xl text-card-foreground">
                     <Hand className="w-6 h-6" />
                     학습 모드
                   </DialogTitle>
@@ -98,72 +118,13 @@ export default function SignLanguageApp() {
             </Dialog>
           </div>
 
-          <Card className="shadow-xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Hand className="w-5 h-5" />
-                저장된 수화 ({signs.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Hand className="w-16 h-16 mx-auto mb-4 opacity-30 animate-pulse" />
-                  <p>수화 데이터를 불러오는 중...</p>
-                </div>
-              ) : error ? (
-                <div className="text-center py-12 text-red-500">
-                  <Hand className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                  <p>데이터를 불러오는 중 오류가 발생했습니다.</p>
-                  <p className="text-sm mt-2">{error.message}</p>
-                </div>
-              ) : signs.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Hand className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                  <p>아직 저장된 수화가 없습니다.</p>
-                  <p className="text-sm mt-2">학습 모드에서 새로운 수화를 추가해보세요!</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                  {signs.map((sign) => (
-                    <div
-                      key={sign.id}
-                      className="group relative bg-white rounded-lg border-2 border-gray-200 hover:border-indigo-400 transition-all overflow-hidden"
-                    >
-                      {sign.thumbnail ? (
-                        <img
-                          src={sign.thumbnail}
-                          alt={sign.name}
-                          className="w-full aspect-square object-cover"
-                        />
-                      ) : (
-                        <div className="w-full aspect-square bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center">
-                          <Hand className="w-12 h-12 text-indigo-400" />
-                        </div>
-                      )}
-                      <div className="p-3">
-                        <p className="font-semibold text-center truncate">{sign.name}</p>
-                        {sign.duration && (
-                          <p className="text-xs text-gray-500 text-center mt-1">
-                            {sign.duration.toFixed(1)}초
-                          </p>
-                        )}
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        className="absolute top-2 right-2 w-7 h-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => deleteMutation.mutate(sign.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+          <SignList 
+            signs={signs}
+            isLoading={isLoading}
+            error={error as Error | null}
+            deleteMutation={deleteMutation}
+          />
+        </main>
       </div>
     </div>
   );

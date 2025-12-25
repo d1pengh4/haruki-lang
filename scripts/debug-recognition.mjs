@@ -31,25 +31,28 @@ function calculateCosineSimilarity(features1, features2) {
 async function debugRecognition() {
   console.log('🔍 인식 디버깅 시작\\n');
 
-  // 운전면허 데이터 가져오기
-  const { data: signData } = await supabase
+  // 골키퍼 데이터 가져오기 (첫 번째)
+  const { data: signDataArray } = await supabase
     .from('sign_languages')
     .select('*')
-    .eq('name', '운전면허')
-    .single();
+    .eq('name', '골키퍼')
+    .limit(1);
+
+  const signData = signDataArray?.[0];
 
   if (!signData) {
-    console.log('❌ 운전면허 데이터를 찾을 수 없습니다');
+    console.log('❌ 골키퍼 데이터를 찾을 수 없습니다');
     return;
   }
 
-  console.log(`✅ 운전면허 데이터 로드`);
+  console.log(`✅ 골키퍼 데이터 로드`);
   console.log(`   프레임 수: ${signData.landmarks_sequence.length}`);
 
-  // 첫 번째 프레임 분석
-  const frame = signData.landmarks_sequence[10]; // 중간 프레임
+  // 중간 프레임 분석
+  const frameIndex = Math.floor(signData.landmarks_sequence.length / 2);
+  const frame = signData.landmarks_sequence[frameIndex];
 
-  console.log(`\\n📊 프레임 #10 분석:`);
+  console.log(`\\n📊 프레임 #${frameIndex} 분석:`);
   console.log(`   timestamp: ${frame.timestamp}`);
   console.log(`   left_hand_features: ${frame.left_hand_features ? `array[${frame.left_hand_features.length}]` : 'null'}`);
   console.log(`   right_hand_features: ${frame.right_hand_features ? `array[${frame.right_hand_features.length}]` : 'null'}`);
@@ -100,7 +103,7 @@ async function debugRecognition() {
   const { data: otherSigns } = await supabase
     .from('sign_languages')
     .select('name, landmarks_sequence')
-    .neq('name', '운전면허')
+    .neq('name', '골키퍼')
     .limit(3);
 
   if (otherSigns && otherSigns.length > 0) {
@@ -134,22 +137,16 @@ async function debugRecognition() {
   // 자기 자신과의 유사도 (다른 프레임)
   console.log(`\\n🔄 같은 수화 내 프레임 간 유사도 (오른손):`);
   const frame0 = signData.landmarks_sequence[0];
-  const frame5 = signData.landmarks_sequence[Math.min(5, signData.landmarks_sequence.length - 1)];
-  const frame14 = signData.landmarks_sequence[Math.min(14, signData.landmarks_sequence.length - 1)];
+  const frameLast = signData.landmarks_sequence[signData.landmarks_sequence.length - 1];
 
   if (frame.right_hand_features && frame0.right_hand_features) {
     const sim1 = calculateCosineSimilarity(frame.right_hand_features, frame0.right_hand_features);
-    console.log(`   프레임 10 vs 0: ${(sim1 * 100).toFixed(1)}%`);
+    console.log(`   프레임 ${frameIndex} vs 0: ${(sim1 * 100).toFixed(1)}%`);
   }
 
-  if (frame.right_hand_features && frame5.right_hand_features) {
-    const sim2 = calculateCosineSimilarity(frame.right_hand_features, frame5.right_hand_features);
-    console.log(`   프레임 10 vs 5: ${(sim2 * 100).toFixed(1)}%`);
-  }
-
-  if (frame.right_hand_features && frame14.right_hand_features) {
-    const sim3 = calculateCosineSimilarity(frame.right_hand_features, frame14.right_hand_features);
-    console.log(`   프레임 10 vs 14: ${(sim3 * 100).toFixed(1)}%`);
+  if (frame.right_hand_features && frameLast.right_hand_features) {
+    const sim2 = calculateCosineSimilarity(frame.right_hand_features, frameLast.right_hand_features);
+    console.log(`   프레임 ${frameIndex} vs ${signData.landmarks_sequence.length - 1}: ${(sim2 * 100).toFixed(1)}%`);
   }
 }
 

@@ -225,13 +225,13 @@ def process_single_file(video_number):
         print(f"❌ JSON 파일 없음: {json_path}")
         return False
 
-    # 라벨 및 시간 구간 읽기
+    # 라벨만 읽기 (영상 전체를 학습에 사용)
     name, start_time, end_time = read_label(json_path)
     if not name:
         return False
 
     print(f"📝 수화 이름: {name}")
-    print(f"⏰ 시간 구간: {start_time:.3f}초 ~ {end_time:.3f}초 ({end_time - start_time:.3f}초)")
+    print(f"⏰ 영상 전체를 학습에 사용합니다")
 
     success_count = 0
 
@@ -240,37 +240,21 @@ def process_single_file(video_number):
         flip_label = "반전" if flip else "원본"
         print(f"\n📹 처리 중: {flip_label} 버전")
 
-        # 비디오 처리
+        # 비디오 처리 (전체 영상)
         result = process_video(video_path, flip_horizontal=flip)
         if not result:
             print(f"❌ {flip_label} 버전 처리 실패")
             continue
 
-        full_sequence, full_duration = result
+        sequence, duration = result
 
-        # 시간 구간에 맞게 프레임 필터링
-        start_ms = start_time * 1000
-        end_ms = end_time * 1000 if end_time else full_duration * 1000
+        print(f"📊 영상 처리 완료:")
+        print(f"   프레임: {len(sequence)}개")
+        print(f"   길이: {duration:.2f}초")
 
-        filtered_sequence = [
-            frame for frame in full_sequence
-            if start_ms <= frame['timestamp'] <= end_ms
-        ]
-
-        print(f"📊 프레임 필터링:")
-        print(f"   전체: {len(full_sequence)}개")
-        print(f"   구간: {len(filtered_sequence)}개")
-
-        if not filtered_sequence or len(filtered_sequence) < 5:
-            print(f"❌ 필터링 후 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(filtered_sequence)}개)")
+        if not sequence or len(sequence) < 5:
+            print(f"❌ 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(sequence)}개)")
             continue
-
-        # 타임스탬프 재조정 (시작 시간을 0으로)
-        for frame in filtered_sequence:
-            frame['timestamp'] = frame['timestamp'] - start_ms
-
-        sequence = filtered_sequence
-        duration = (end_ms - start_ms) / 1000
 
         # Supabase 저장
         if save_to_supabase(name, sequence, duration):
@@ -295,8 +279,8 @@ if __name__ == '__main__':
     print(f"Supabase URL: {SUPABASE_URL}")
     print()
 
-    # 테스트: 1501-1502 파일 처리
-    test_numbers = ["1501", "1502"]
+    # 테스트: 1501-1504, 2001 파일 처리
+    test_numbers = ["1501", "1502", "1503", "1504", "2001"]
     success_count = 0
     fail_count = 0
 
