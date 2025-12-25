@@ -1,0 +1,12 @@
+# Training data (large video files)
+02/
+17/
+
+# Development files
+node_modules/
+.git/
+.vercel/
+*.log
+
+# Environment files
+.env*.local
