@@ -56,3 +56,7 @@ credentials/
 # Claude AI
 .claude
 .env*.local
+
+# Training data (large video files)
+02/
+17/
