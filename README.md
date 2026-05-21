@@ -910,7 +910,7 @@ python3 scripts/batch_process.py
 <td>"복사" 버튼 클릭 → 클립보드에 복사됨</td>
 </tr>
 <tr>
-<td>🔄</td>
+<td></td>
 <td><strong>초기화</strong></td>
 <td>"초기화" 버튼 클릭 → 문장 전체 삭제</td>
 </tr>
@@ -991,14 +991,14 @@ const BUFFER_SIZE = 90;              // 버퍼 크기 (프레임 수)
 
 ### 수화 관리
 
-- 🔍 **검색**: 검색창에 수화 이름 입력하여 실시간 필터링
-- 📊 **정렬**: 생성일 기준 내림차순 자동 정렬
-- 🗑️ **삭제**: 각 항목의 휴지통 아이콘 클릭 (확인 후 삭제)
-- 📁 **접기/펼치기**: 화살표 버튼으로 목록 토글하여 공간 절약
+- **검색**: 검색창에 수화 이름 입력하여 실시간 필터링
+- **정렬**: 생성일 기준 내림차순 자동 정렬
+- **삭제**: 각 항목의 휴지통 아이콘 클릭 (확인 후 삭제)
+- **접기/펼치기**: 화살표 버튼으로 목록 토글하여 공간 절약
 
 ---
 
-## ⚡ 성능 최적화
+## 성능 최적화
 
 ### 1. 프레임 샘플링
 
@@ -1051,7 +1051,7 @@ npm run build
 ## 🐛 문제 해결
 
 <details>
-<summary><strong>❌ 웹캠이 작동하지 않아요</strong></summary>
+<summary><strong> 웹캠이 작동하지 않아요</strong></summary>
 
 - ✅ 브라우저 웹캠 권한 허용 확인
 - ✅ HTTPS 또는 localhost에서 실행 필요
@@ -1066,7 +1066,7 @@ npm run dev
 </details>
 
 <details>
-<summary><strong>❌ Supabase 연결 오류</strong></summary>
+<summary><strong> Supabase 연결 오류</strong></summary>
 
 ```bash
 # .env.local 파일 확인
@@ -1084,7 +1084,7 @@ VITE_SUPABASE_ANON_KEY=eyJ...
 </details>
 
 <details>
-<summary><strong>❌ 수화 인식이 잘 안돼요</strong></summary>
+<summary><strong> 수화 인식 오류</strong></summary>
 
 **환경 개선**:
 - ✅ 충분한 조명 확보 (정면 조명 추천)
@@ -1108,7 +1108,7 @@ const RECOGNITION_THRESHOLD = 55;  // 낮추면 더 쉽게 문장 추가
 </details>
 
 <details>
-<summary><strong>❌ 빌드 오류</strong></summary>
+<summary><strong> 빌드 오류</strong></summary>
 
 ```bash
 # node_modules 삭제 후 재설치
@@ -1125,7 +1125,7 @@ npx tsc --noEmit
 </details>
 
 <details>
-<summary><strong>❌ 배치 학습 오류</strong></summary>
+<summary><strong> 배치 학습 오류</strong></summary>
 
 ```bash
 # Python 의존성 재설치
@@ -1142,7 +1142,7 @@ python3 -c "import cv2; print(cv2.__version__)"
 
 ---
 
-## 📊 데이터베이스 스키마
+##  데이터베이스 스키마
 
 ### `sign_languages` 테이블
 
@@ -1198,7 +1198,7 @@ CREATE INDEX idx_sign_languages_duration ON sign_languages(duration);
 
 ### 🚧 진행 중
 
-- [ ] HuggingFace Qwen 모델 통합 (문장 변환)
+- [x] HuggingFace Qwen 모델 통합 (문장 변환)
 - [ ] 인식률 개선 (60% → 80%+)
 - [ ] 더 많은 수화 데이터 학습
 
@@ -1219,10 +1219,10 @@ CREATE INDEX idx_sign_languages_duration ON sign_languages(duration);
 
 ### 1. 이슈 제출
 
-- 🐛 버그 리포트
-- 💡 기능 제안
-- 📚 문서 개선
-- ❓ 질문
+- 버그 리포트
+- 기능 제안
+- 문서 개선
+- 질문
 
 ### 2. Pull Request
 
@@ -1302,13 +1302,11 @@ Unauthorized use, reproduction, or distribution may result in legal action.
 
 ---
 
-## 🙏 감사의 말
+## 참조
 
-이 프로젝트는 다음 오픈소스 프로젝트의 도움을 받았습니다:
+이 프로젝트는 다음 오픈소스 프로젝트를 참조하여 제작되었습니다:
 
-- **Google MediaPipe** - 오픈소스 AI 모델 제공
-- **Supabase** - 무료 백엔드 서비스
-- **shadcn/ui** - 아름다운 UI 컴포넌트
+- **Google MediaPipe** - 오픈소스 AI 모델
 - **한국수어학회** - 수화 자료 및 가이드라인
 - **NIA 한국지능정보사회진흥원** - 수화 영상 데이터셋
 
@@ -1324,6 +1322,5 @@ Unauthorized use, reproduction, or distribution may result in legal action.
 
 ---
 
-### ⭐ 이 프로젝트가 도움이 되었다면 Star를 눌러주세요!
 
 </div>
