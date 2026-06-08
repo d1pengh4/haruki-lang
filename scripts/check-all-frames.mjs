@@ -21,16 +21,20 @@ async function checkAllFrames() {
     return;
   }
 
+  // v1/v2 포맷 통일
+  const ls = signData.landmarks_sequence;
+  const allFrames = (!Array.isArray(ls) && ls?.v === 2) ? ls.sequences.flat() : (ls || []);
+
   console.log(`✅ 운전면허 데이터 로드`);
-  console.log(`   총 프레임 수: ${signData.landmarks_sequence.length}\n`);
+  console.log(`   총 프레임 수: ${allFrames.length}\n`);
 
   let leftCount = 0;
   let rightCount = 0;
   let bothCount = 0;
 
   console.log('프레임별 손 감지:');
-  for (let i = 0; i < signData.landmarks_sequence.length; i++) {
-    const frame = signData.landmarks_sequence[i];
+  for (let i = 0; i < allFrames.length; i++) {
+    const frame = allFrames[i];
     const hasLeft = frame.left_hand_features && frame.left_hand_features.length === 33;
     const hasRight = frame.right_hand_features && frame.right_hand_features.length === 33;
 
@@ -45,9 +49,9 @@ async function checkAllFrames() {
   }
 
   console.log(`\n📊 통계:`);
-  console.log(`  왼손 감지: ${leftCount}/${signData.landmarks_sequence.length} (${(leftCount/signData.landmarks_sequence.length*100).toFixed(1)}%)`);
-  console.log(`  오른손 감지: ${rightCount}/${signData.landmarks_sequence.length} (${(rightCount/signData.landmarks_sequence.length*100).toFixed(1)}%)`);
-  console.log(`  양손 모두: ${bothCount}/${signData.landmarks_sequence.length} (${(bothCount/signData.landmarks_sequence.length*100).toFixed(1)}%)`);
+  console.log(`  왼손 감지: ${leftCount}/${allFrames.length} (${(leftCount/allFrames.length*100).toFixed(1)}%)`);
+  console.log(`  오른손 감지: ${rightCount}/${allFrames.length} (${(rightCount/allFrames.length*100).toFixed(1)}%)`);
+  console.log(`  양손 모두: ${bothCount}/${allFrames.length} (${(bothCount/allFrames.length*100).toFixed(1)}%)`);
 }
 
 checkAllFrames().catch(console.error);

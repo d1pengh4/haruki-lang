@@ -16,28 +16,22 @@ import LearningMode from "@/components/sign-language/LearningMode";
 import RecognitionMode from "@/components/sign-language/RecognitionMode";
 import SignList from "@/components/sign-language/SignList";
 
-// Constants for React Query
+// React Query 키 상수
 const SIGNS_QUERY_KEY = ['signs'];
 
 /**
- * Main application component for the Haruki Sign Language Translator.
- * It orchestrates the webcam capture, real-time recognition, and sign language learning modes.
+ * 하루키 수화 번역기 메인 앱 컴포넌트.
+ * 웹캠 캡처, 실시간 인식, 학습 모드를 오케스트레이션한다.
  */
 export default function SignLanguageApp() {
-  /**
-   * State to control the visibility of the Learning Mode dialog.
-   */
+  // 학습 모드 다이얼로그 표시 여부
   const [showLearningMode, setShowLearningMode] = useState(false);
-  /**
-   * State to hold the latest detected landmarks from the webcam.
-   */
+  // 웹캠에서 감지된 최신 랜드마크
   const [currentLandmarks, setCurrentLandmarks] = useState(null);
-  
+
   const queryClient = useQueryClient();
 
-  /**
-   * Fetches the list of all sign language data from the backend.
-   */
+  // 저장된 수화 목록 조회
   const { data: signs = [], isLoading, error } = useQuery({
     queryKey: SIGNS_QUERY_KEY,
     queryFn: async () => {
@@ -46,14 +40,11 @@ export default function SignLanguageApp() {
     },
     refetchOnMount: true,
     refetchOnWindowFocus: false,
-    staleTime: 0, // Always fetch the latest data
+    staleTime: 0,
     retry: 2,
   });
 
-  /**
-   * Mutation for deleting a sign language entry.
-   * Invalidates the signs query on success to refetch the list.
-   */
+  // 수화 삭제 뮤테이션
   const deleteMutation = useMutation({
     mutationFn: (id: string) => base44.entities.SignLanguage.delete(id),
     onSuccess: () => {
@@ -62,70 +53,85 @@ export default function SignLanguageApp() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8">
-        <header className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4 relative">
-            <div className="w-16 h-16 bg-gradient-to-br from-primary to-cyan-500 rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30">
-              <Hand className="w-9 h-9 text-primary-foreground" />
-            </div>
-            <Sparkles className="absolute -top-2 -right-2 w-6 h-6 text-cyan-400" />
-          </div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">
-            한국 수화 번역기
-          </h1>
-          <p className="text-muted-foreground text-lg">
-            실시간 수화 인식 및 문장 생성
-          </p>
-        </header>
+    <div className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-slate-900 text-white flex flex-col">
 
-        <main className="max-w-6xl mx-auto">
-          <div className="grid lg:grid-cols-3 gap-6 mb-6">
-            <div className="lg:col-span-2">
-              <WebcamCapture 
+      {/* ── 헤더 ── */}
+      <header className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-black/40 backdrop-blur-sm shrink-0">
+        {/* 로고 + 타이틀 */}
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/30">
+            <Hand className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-lg font-bold text-white tracking-tight">하루키</span>
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+          </div>
+        </div>
+
+        {/* 우측: 학습된 수화 수 + 학습하기 버튼 */}
+        <div className="flex items-center gap-3">
+          {signs.length > 0 && (
+            <span className="text-xs text-white/40 font-medium">
+              학습 {signs.length}개
+            </span>
+          )}
+          <Dialog open={showLearningMode} onOpenChange={setShowLearningMode}>
+            <DialogTrigger asChild>
+              <Button
+                size="sm"
+                className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/30 border-0 gap-1.5"
+              >
+                <BookOpen className="w-4 h-4" />
+                수화 학습하기
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-slate-900 border-white/10 text-white">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-xl text-white">
+                  <Hand className="w-5 h-5" />
+                  학습 모드
+                </DialogTitle>
+              </DialogHeader>
+              <LearningMode signs={signs} />
+            </DialogContent>
+          </Dialog>
+        </div>
+      </header>
+
+      {/* ── 메인 콘텐츠 ── */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* 웹캠 + 인식 패널 (70/30 분할) */}
+        <div className="flex flex-1 gap-0 overflow-hidden min-h-0">
+
+          {/* 왼쪽: 웹캠 (70%) */}
+          <div className="flex-[7] min-w-0 p-4 pr-2">
+            <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/50">
+              <WebcamCapture
                 onLandmarksDetected={setCurrentLandmarks}
                 showLandmarks={true}
               />
             </div>
-            <div>
-              <RecognitionMode 
-                currentLandmarks={currentLandmarks}
-                signs={signs}
-              />
-            </div>
           </div>
 
-          <div className="flex justify-center mb-6">
-            <Dialog open={showLearningMode} onOpenChange={setShowLearningMode}>
-              <DialogTrigger asChild>
-                <Button 
-                  size="lg"
-                  className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30"
-                >
-                  <BookOpen className="w-5 h-5 mr-2" />
-                  수화 학습하기
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-card border-border">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-2xl text-card-foreground">
-                    <Hand className="w-6 h-6" />
-                    학습 모드
-                  </DialogTitle>
-                </DialogHeader>
-                <LearningMode signs={signs} />
-              </DialogContent>
-            </Dialog>
+          {/* 오른쪽: 인식 패널 (30%) */}
+          <div className="flex-[3] min-w-0 p-4 pl-2 flex flex-col min-h-0">
+            <RecognitionMode
+              currentLandmarks={currentLandmarks}
+              signs={signs}
+            />
           </div>
+        </div>
 
-          <SignList 
+        {/* ── 하단: 저장된 수화 가로 스크롤 ── */}
+        <div className="shrink-0 border-t border-white/5 bg-black/30 backdrop-blur-sm">
+          <SignList
             signs={signs}
             isLoading={isLoading}
             error={error as Error | null}
             deleteMutation={deleteMutation}
           />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

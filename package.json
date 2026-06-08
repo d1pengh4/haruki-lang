@@ -9,16 +9,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "auto-learn": "node ./scripts/auto-upload.mjs",
-    "batch-learn": "node ./scripts/batch-learn.mjs",
-    "simple-batch": "node ./scripts/simple-batch.mjs",
-    "process-videos": "node ./scripts/process-videos.mjs",
-    "validate-data": "node ./scripts/validate-data.mjs",
-    "check-data": "node ./scripts/check-data.mjs",
-    "fix-old-data": "node ./scripts/fix-old-data.mjs"
+    "prepare-training": "node ./scripts/prepare-training.mjs",
+    "debug-recognition": "node ./scripts/debug-recognition.mjs",
+    "check-frames": "node ./scripts/check-all-frames.mjs",
+    "delete-sign": "node ./scripts/delete-sign.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
     "@huggingface/inference": "^4.13.5",
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-label": "^2.1.0",
@@ -29,7 +25,6 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.451.0",
-    "puppeteer": "^24.34.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4"

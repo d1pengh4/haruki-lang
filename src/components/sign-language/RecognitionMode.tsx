@@ -1,140 +1,192 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Eye, CheckCircle2, AlertCircle, TrendingUp, Activity, Trash2, Copy, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Eye, CheckCircle2, Activity, Trash2, Copy, Sparkles, Volume2, VolumeX, X } from 'lucide-react';
 import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { SignLanguage } from '@/lib/supabaseClient';
-import { calculateFeatureSimilarity } from '@/lib/featureExtraction';
+import type { SignLanguage, LandmarksDetected, LandmarkFrame } from '@/lib/supabaseClient';
+import { getSignSequences } from '@/lib/supabaseClient';
+import { calculateSubsequenceDTW, trimSilence, filterNullFrames, resampleSequence } from '@/lib/featureExtraction';
 import { convertToNaturalSentence } from '@/lib/huggingfaceApi';
+import { speak, isTTSSupported } from '@/lib/ttsService';
 
 // ==================================================================
-// 1. Constants and Configuration
+// 1. 인식 파라미터 설정
 // ==================================================================
 
-/**
- * Parameters for the sign language recognition algorithm.
- * Grouping these values makes them easier to tune.
- */
 const RECOGNITION_PARAMS = {
-  // Timing and Buffers
-  MOTION_BUFFER_DURATION_MS: 3000,
-  ANALYSIS_INTERVAL_MS: 300,
+  MOTION_BUFFER_DURATION_MS: 4000,
+  ANALYSIS_INTERVAL_MS: 150,
   CONVERT_DEBOUNCE_MS: 500,
-
-  // Frame Counts
-  MIN_FRAMES_FOR_ANALYSIS: 15,
-  MIN_FRAMES_FOR_MOTION_VARIANCE: 8,
-  NEUTRAL_POSE_CONFIRMATION_FRAMES: 3,
-  CONSECUTIVE_RECOGNITION_FRAMES: 1,
-
-  // Thresholds
-  MOTION_VARIANCE_THRESHOLD: 0.002,
-  DISPLAY_THRESHOLD: 55, // Similarity score to show a potential match
-  RECOGNITION_THRESHOLD: 60, // Similarity score to confirm a match
+  MIN_FRAMES_FOR_ANALYSIS: 6,
+  MIN_FRAMES_FOR_MOTION_VARIANCE: 4,
+  NEUTRAL_POSE_CONFIRMATION_FRAMES: 2,
+  CONSECUTIVE_RECOGNITION_FRAMES: 2,
+  MOTION_VARIANCE_THRESHOLD: 0.0012,
+  DISPLAY_THRESHOLD: 35,                  // 후보 표시 (40→35)
+  RECOGNITION_THRESHOLD: 48,             // 인식 확정 (55→48) — 손 감지 불안정 보정
   NEUTRAL_POSE_VISIBILITY_THRESHOLD: 0.5,
-  NEUTRAL_POSE_TORSO_FACTOR: 0.5,
-  
-  // Timeouts
-  CONSECUTIVE_RECOGNITION_TIMEOUT_MS: 1000,
+  NEUTRAL_POSE_TORSO_FACTOR: 0.35,
+  CONSECUTIVE_RECOGNITION_TIMEOUT_MS: 2000,
 };
 
 interface RecognitionModeProps {
-  currentLandmarks: any;
+  currentLandmarks: LandmarksDetected | null;
   signs: SignLanguage[];
 }
 
+interface NeutralPoseInput {
+  leftHand: LandmarksDetected['leftHand'];
+  rightHand: LandmarksDetected['rightHand'];
+  pose: LandmarksDetected['pose'];
+}
+
 // ==================================================================
-// 2. Main Component
+// 2. 메인 컴포넌트
 // ==================================================================
+
+// P0-1: 사전 필터용 부호 평균 특징
+interface SignMean { combined: number[] | null }
+
+// P0-1: 빠른 코사인 유사도 (pre-filter용)
+function quickCos(a: number[], b: number[]): number {
+  let d = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return (na > 0 && nb > 0) ? d / Math.sqrt(na * nb) : 0;
+}
 
 export default function RecognitionMode({ currentLandmarks, signs }: RecognitionModeProps) {
-  // State for UI and recognition results
   const [bestMatch, setBestMatch] = useState<{ sign: SignLanguage; similarity: number } | null>(null);
-  const [motionBuffer, setMotionBuffer] = useState<any[]>([]);
+  const [topMatches, setTopMatches] = useState<{ sign: SignLanguage; similarity: number }[]>([]);
+  // P0-2: 매 프레임 setState 제거 → 분석 주기에만 업데이트
+  const [motionBufferLen, setMotionBufferLen] = useState(0);
   const [recognizedWords, setRecognizedWords] = useState<string[]>([]);
-  const [naturalSentence, setNaturalSentence] = useState("");
+  const [naturalSentence, setNaturalSentence] = useState('');
   const [isConverting, setIsConverting] = useState(false);
   const [lastRecognizedId, setLastRecognizedId] = useState<string | null>(null);
+  const [isTTSEnabled, setIsTTSEnabled] = useState(isTTSSupported());
+  // P3-11: 연속 인식 카운트 시각화
+  const [consecutiveCount, setConsecutiveCount] = useState(0);
 
-  // Refs for managing complex logic and avoiding re-renders
-  const motionBufferRef = useRef<any[]>([]);
+  const motionBufferRef = useRef<LandmarkFrame[]>([]);
   const lastAnalysisRef = useRef(0);
   const processingRef = useRef(false);
-  const consecutiveRecognitionRef = useRef({ signId: null as string | null, count: 0, lastTime: 0 });
+  const consecutiveRecognitionRef = useRef<{ signId: string | null; count: number; lastTime: number }>({ signId: null, count: 0, lastTime: 0 });
   const currentRecognizedSignRef = useRef<{ sign: SignLanguage; similarity: number } | null>(null);
   const neutralPoseCountRef = useRef(0);
-  const convertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  /**
-   * Effect to handle incoming landmark data from the webcam.
-   * It populates and prunes the motion buffer, then triggers analysis.
-   */
+  const convertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevWordsLengthRef = useRef(0);
+  // P0-1: 수화별 평균 특징 캐시
+  const signMeansRef = useRef<Map<string, SignMean>>(new Map());
+
+  // P0-1: signs 변경 시 각 수화의 평균 특징 벡터 사전 계산
+  useEffect(() => {
+    const means = new Map<string, SignMean>();
+    for (const sign of signs) {
+      const seqs = getSignSequences(sign);
+      if (!seqs.length) { means.set(sign.id, { combined: null }); continue; }
+      const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0);
+      let lhN = 0, rhN = 0;
+      for (const seq of seqs) {
+        for (const f of seq) {
+          if (f.left_hand_features?.length === 33) {
+            f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
+          }
+          if (f.right_hand_features?.length === 33) {
+            f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
+          }
+        }
+      }
+      const lh = lhN > 0 ? lhAcc.map(v => v / lhN) : null;
+      const rh = rhN > 0 ? rhAcc.map(v => v / rhN) : null;
+      const combined = (lh || rh)
+        ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0))]
+        : null;
+      means.set(sign.id, { combined });
+    }
+    signMeansRef.current = means;
+  }, [signs]);
+
+  // 세션 복원 (마운트 시)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('haruki_session');
+      if (saved) {
+        const { words } = JSON.parse(saved);
+        if (Array.isArray(words)) {
+          setRecognizedWords(words);
+          prevWordsLengthRef.current = words.length;
+        }
+      }
+    } catch (e) { console.warn('세션 복원 실패:', e); }
+  }, []);
+
+  // 랜드마크 수신 → 동작 버퍼 누적
   useEffect(() => {
     if (!currentLandmarks || !signs || signs.length === 0) return;
 
     const timestamp = Date.now();
-    const frameData = {
+    const frameData: LandmarkFrame = {
       timestamp,
-      pose: currentLandmarks.pose || null,
-      left_hand: currentLandmarks.leftHand || null,
-      right_hand: currentLandmarks.rightHand || null,
-      face: currentLandmarks.face || null,
-      left_hand_features: currentLandmarks.leftHandFeatures || null,
-      right_hand_features: currentLandmarks.rightHandFeatures || null,
-      pose_features: currentLandmarks.poseFeatures || null
+      pose: currentLandmarks.pose,
+      left_hand: currentLandmarks.leftHand,
+      right_hand: currentLandmarks.rightHand,
+      face: currentLandmarks.face,
+      left_hand_features: currentLandmarks.leftHandFeatures,
+      right_hand_features: currentLandmarks.rightHandFeatures,
+      pose_features: currentLandmarks.poseFeatures,
     };
 
     motionBufferRef.current.push(frameData);
-
     const cutoffTime = timestamp - RECOGNITION_PARAMS.MOTION_BUFFER_DURATION_MS;
     motionBufferRef.current = motionBufferRef.current.filter(f => f.timestamp > cutoffTime);
+    // P0-2: 매 프레임 setState 제거 → analyzeMotion에서만 업데이트
 
-    setMotionBuffer(motionBufferRef.current);
-
-    if (timestamp - lastAnalysisRef.current > RECOGNITION_PARAMS.ANALYSIS_INTERVAL_MS && motionBufferRef.current.length >= RECOGNITION_PARAMS.MIN_FRAMES_FOR_ANALYSIS) {
+    if (
+      timestamp - lastAnalysisRef.current > RECOGNITION_PARAMS.ANALYSIS_INTERVAL_MS &&
+      motionBufferRef.current.length >= RECOGNITION_PARAMS.MIN_FRAMES_FOR_ANALYSIS
+    ) {
       lastAnalysisRef.current = timestamp;
       analyzeMotion();
     }
   }, [currentLandmarks, signs]);
 
-  /**
-   * Effect to trigger natural sentence conversion when the list of recognized words changes.
-   * Debounces the API call to avoid excessive requests.
-   */
+  // AI 문장 변환 (디바운스)
   useEffect(() => {
     if (recognizedWords.length === 0) {
-      setNaturalSentence("");
+      setNaturalSentence('');
       return;
     }
-
     if (convertTimeoutRef.current) clearTimeout(convertTimeoutRef.current);
-
     convertTimeoutRef.current = setTimeout(async () => {
       setIsConverting(true);
       try {
         const sentence = await convertToNaturalSentence(recognizedWords);
         setNaturalSentence(sentence);
-      } catch (error) {
-        console.error('❌ 문장 변환 오류:', error);
+      } catch {
         setNaturalSentence(recognizedWords.join(' '));
       } finally {
         setIsConverting(false);
       }
     }, RECOGNITION_PARAMS.CONVERT_DEBOUNCE_MS);
-
-    return () => {
-      if (convertTimeoutRef.current) clearTimeout(convertTimeoutRef.current);
-    };
+    return () => { if (convertTimeoutRef.current) clearTimeout(convertTimeoutRef.current); };
   }, [recognizedWords]);
 
-  // The core recognition logic and helper functions remain unchanged as requested,
-  // but they now use the constants from RECOGNITION_PARAMS.
-  // ... isNeutralPose, calculateMotionVariance, analyzeMotion, etc. ...
-  
-  // NOTE: The user requested not to touch the algorithm. The following functions
-  // are the implementation of that algorithm, now using the params object.
-  const isNeutralPose = (landmarks) => {
+  // TTS: 새 단어 인식 시 음성 출력
+  useEffect(() => {
+    if (!isTTSEnabled) return;
+    if (recognizedWords.length > prevWordsLengthRef.current) {
+      speak(recognizedWords[recognizedWords.length - 1]);
+    }
+    prevWordsLengthRef.current = recognizedWords.length;
+  }, [recognizedWords, isTTSEnabled]);
+
+  // 세션 저장 (단어 변경 시)
+  useEffect(() => {
+    try {
+      localStorage.setItem('haruki_session', JSON.stringify({ words: recognizedWords }));
+    } catch (e) { console.warn('세션 저장 실패:', e); }
+  }, [recognizedWords]);
+
+  const isNeutralPose = (landmarks: NeutralPoseInput): boolean => {
     if (!landmarks) return false;
     const hasLeftHand = landmarks.leftHand && landmarks.leftHand.length > 0;
     const hasRightHand = landmarks.rightHand && landmarks.rightHand.length > 0;
@@ -148,17 +200,17 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
     const hipY = (leftHip.y + rightHip.y) / 2;
     const torsoLength = hipY - shoulderY;
-    const neutralThreshold = shoulderY + (torsoLength * RECOGNITION_PARAMS.NEUTRAL_POSE_TORSO_FACTOR);
+    const neutralThreshold = shoulderY + torsoLength * RECOGNITION_PARAMS.NEUTRAL_POSE_TORSO_FACTOR;
 
     let allHandsBelow = true;
-    if (hasLeftHand) {
+    if (hasLeftHand && landmarks.leftHand) {
       const leftWrist = landmarks.leftHand[0];
       const visibility = leftWrist.visibility !== undefined ? leftWrist.visibility : 1.0;
       if (visibility < RECOGNITION_PARAMS.NEUTRAL_POSE_VISIBILITY_THRESHOLD || leftWrist.y <= neutralThreshold) {
         allHandsBelow = false;
       }
     }
-    if (hasRightHand) {
+    if (hasRightHand && landmarks.rightHand) {
       const rightWrist = landmarks.rightHand[0];
       const visibility = rightWrist.visibility !== undefined ? rightWrist.visibility : 1.0;
       if (visibility < RECOGNITION_PARAMS.NEUTRAL_POSE_VISIBILITY_THRESHOLD || rightWrist.y <= neutralThreshold) {
@@ -168,7 +220,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     return allHandsBelow;
   };
 
-  const calculateMotionVariance = (buffer) => {
+  const calculateMotionVariance = (buffer: LandmarkFrame[]): number => {
     if (buffer.length < 3) return 0;
     let totalVariance = 0;
     let count = 0;
@@ -176,12 +228,18 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       const prev = buffer[i - 1];
       const curr = buffer[i];
       if (prev.left_hand_features && curr.left_hand_features) {
-        const variance = prev.left_hand_features.reduce((sum, val, idx) => sum + Math.abs(val - (curr.left_hand_features[idx] || 0)), 0);
+        const dims = prev.left_hand_features.length;
+        const variance = prev.left_hand_features.reduce(
+          (sum, val, idx) => sum + Math.abs(val - (curr.left_hand_features![idx] ?? 0)), 0
+        ) / dims; // 차원당 평균으로 정규화
         totalVariance += variance;
         count++;
       }
       if (prev.right_hand_features && curr.right_hand_features) {
-        const variance = prev.right_hand_features.reduce((sum, val, idx) => sum + Math.abs(val - (curr.right_hand_features[idx] || 0)), 0);
+        const dims = prev.right_hand_features.length;
+        const variance = prev.right_hand_features.reduce(
+          (sum, val, idx) => sum + Math.abs(val - (curr.right_hand_features![idx] ?? 0)), 0
+        ) / dims;
         totalVariance += variance;
         count++;
       }
@@ -189,25 +247,30 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     return count > 0 ? totalVariance / count : 0;
   };
 
-  const analyzeMotion = () => {
+  const analyzeMotion = (): void => {
     if (processingRef.current) return;
     processingRef.current = true;
 
     setTimeout(() => {
+      try {
+      // P0-2: 분석 주기에만 버퍼 길이 업데이트
+      setMotionBufferLen(motionBufferRef.current.length);
+
       const latestFrame = motionBufferRef.current[motionBufferRef.current.length - 1];
-      if (!latestFrame) {
-        processingRef.current = false;
-        return;
-      }
+      if (!latestFrame) { processingRef.current = false; return; }
+
       const isNeutral = isNeutralPose({
         leftHand: latestFrame.left_hand,
         rightHand: latestFrame.right_hand,
-        pose: latestFrame.pose
+        pose: latestFrame.pose,
       });
 
       if (isNeutral) {
         neutralPoseCountRef.current++;
-        if (neutralPoseCountRef.current >= RECOGNITION_PARAMS.NEUTRAL_POSE_CONFIRMATION_FRAMES && currentRecognizedSignRef.current) {
+        if (
+          neutralPoseCountRef.current >= RECOGNITION_PARAMS.NEUTRAL_POSE_CONFIRMATION_FRAMES &&
+          currentRecognizedSignRef.current
+        ) {
           const signToAdd = currentRecognizedSignRef.current;
           if (lastRecognizedId !== signToAdd.sign.id) {
             setRecognizedWords(prev => [...prev, signToAdd.sign.name]);
@@ -216,6 +279,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
           currentRecognizedSignRef.current = null;
           setBestMatch(null);
           consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
+          setConsecutiveCount(0);
           neutralPoseCountRef.current = 0;
         }
         processingRef.current = false;
@@ -223,7 +287,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       }
 
       neutralPoseCountRef.current = 0;
-      
+
       if (motionBufferRef.current.length < RECOGNITION_PARAMS.MIN_FRAMES_FOR_MOTION_VARIANCE) {
         setBestMatch(null);
         currentRecognizedSignRef.current = null;
@@ -231,232 +295,434 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         return;
       }
 
-      const motionVariance = calculateMotionVariance(motionBufferRef.current);
-      if (motionVariance <= RECOGNITION_PARAMS.MOTION_VARIANCE_THRESHOLD) {
+      // 버퍼 전처리: null 프레임 제거 → silence trim
+      const cleanBuffer = trimSilence(filterNullFrames(motionBufferRef.current));
+      if (cleanBuffer.length < RECOGNITION_PARAMS.MIN_FRAMES_FOR_ANALYSIS) {
+        processingRef.current = false;
+        return;
+      }
+
+      // P1-5: 손 특징 존재 여부로 게이팅 (정적 수화 포함)
+      const hasHand = cleanBuffer.some(f => f.left_hand_features !== null || f.right_hand_features !== null);
+      if (!hasHand) {
         setBestMatch(null);
         currentRecognizedSignRef.current = null;
         processingRef.current = false;
         return;
       }
 
-      const results = signs.map(sign => {
-        if (!sign.landmarks_sequence || sign.landmarks_sequence.length < 5) return null;
-        const similarity = calculateMotionSimilarityOptimized(motionBufferRef.current, sign.landmarks_sequence);
-        return { sign, similarity: similarity * 100 };
-      }).filter(Boolean) as { sign: SignLanguage; similarity: number }[];
+      // 정적 수화 감지 (동작 없이 손 모양만 유지)
+      const motionVariance = calculateMotionVariance(motionBufferRef.current);
+      const isStatic = motionVariance <= RECOGNITION_PARAMS.MOTION_VARIANCE_THRESHOLD;
+      // 정적 수화는 오인식 방지를 위해 임계값 소폭 상향
+      const displayThresh = isStatic
+        ? RECOGNITION_PARAMS.DISPLAY_THRESHOLD + 3
+        : RECOGNITION_PARAMS.DISPLAY_THRESHOLD;
+      const recognitionThresh = isStatic
+        ? RECOGNITION_PARAMS.RECOGNITION_THRESHOLD + 2
+        : RECOGNITION_PARAMS.RECOGNITION_THRESHOLD;
+
+      // P0-1: 코사인 사전 필터 — signs > 12개일 때만 적용
+      const PRE_FILTER_K = 12;
+      let candidateSigns = signs;
+      if (signs.length > PRE_FILTER_K) {
+        // 버퍼 평균 특징 계산
+        const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0);
+        let lhN = 0, rhN = 0;
+        for (const f of cleanBuffer) {
+          if (f.left_hand_features?.length === 33) {
+            f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
+          }
+          if (f.right_hand_features?.length === 33) {
+            f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
+          }
+        }
+        const lh = lhN > 0 ? lhAcc.map(v => v / lhN) : null;
+        const rh = rhN > 0 ? rhAcc.map(v => v / rhN) : null;
+        const bufCombined = (lh || rh)
+          ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0))]
+          : null;
+        if (bufCombined) {
+          candidateSigns = signs
+            .map(sign => {
+              const mean = signMeansRef.current.get(sign.id)?.combined;
+              // 버그 수정: mean 없으면 0이 아닌 0.5 (중간 순위 배정)
+              return { sign, preScore: mean ? quickCos(bufCombined, mean) : 0.5 };
+            })
+            .sort((a, b) => b.preScore - a.preScore)
+            .slice(0, PRE_FILTER_K)
+            .map(s => s.sign);
+        }
+      }
+
+      // DTW: 리샘플링 버전(속도 정규화)과 원본(SDTW) 중 최고 점수 사용
+      const results = candidateSigns
+        .map(sign => {
+          const sequences = getSignSequences(sign);
+          if (sequences.length === 0) return null;
+          const scores = sequences.map(seq => {
+            // 1) 리샘플링: 속도 차이 정규화
+            const resampledBuffer = resampleSequence(cleanBuffer, Math.max(8, seq.length));
+            const score1 = calculateSubsequenceDTW(resampledBuffer, seq);
+            // 2) 원본 SDTW: 최적 부분 구간 탐색
+            const score2 = calculateSubsequenceDTW(cleanBuffer, seq);
+            return Math.max(score1, score2);
+          });
+          const best = Math.max(...scores);
+          return { sign, similarity: best * 100 };
+        })
+        .filter(Boolean) as { sign: SignLanguage; similarity: number }[];
 
       results.sort((a, b) => b.similarity - a.similarity);
 
-      if (results[0] && results[0].similarity > RECOGNITION_PARAMS.DISPLAY_THRESHOLD) {
-        const bestResult = results[0];
+      const top3 = results.slice(0, 5).filter(r => r.similarity > displayThresh);
+      setTopMatches(top3);
+
+      if (top3.length > 0) {
+        const bestResult = top3[0];
         setBestMatch(bestResult);
 
-        if (bestResult.similarity > RECOGNITION_PARAMS.RECOGNITION_THRESHOLD) {
+        if (bestResult.similarity >= recognitionThresh) {
           const now = Date.now();
           if (consecutiveRecognitionRef.current.signId === bestResult.sign.id) {
             consecutiveRecognitionRef.current.count++;
+            consecutiveRecognitionRef.current.lastTime = now;
           } else {
             consecutiveRecognitionRef.current = { signId: bestResult.sign.id, count: 1, lastTime: now };
           }
-
+          // P3-11: 연속 카운트 상태 업데이트
+          setConsecutiveCount(consecutiveRecognitionRef.current.count);
           if (consecutiveRecognitionRef.current.count >= RECOGNITION_PARAMS.CONSECUTIVE_RECOGNITION_FRAMES) {
             currentRecognizedSignRef.current = bestResult;
+          }
+        } else {
+          if (consecutiveRecognitionRef.current.signId !== bestResult.sign.id) {
+            consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
+            setConsecutiveCount(0);
           }
         }
       } else {
         setBestMatch(null);
+        setTopMatches([]);
         if (Date.now() - consecutiveRecognitionRef.current.lastTime > RECOGNITION_PARAMS.CONSECUTIVE_RECOGNITION_TIMEOUT_MS) {
           consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
           currentRecognizedSignRef.current = null;
+          setConsecutiveCount(0);
         }
       }
 
       processingRef.current = false;
+      } catch (e) {
+        console.error('[RecognitionMode] 분석 오류:', e);
+        processingRef.current = false;
+      }
     }, 0);
   };
 
-  const compareFeaturesOptimized = (features1, features2) => {
-    if (!features1 || !features2 || features1.length !== features2.length) return 0;
-    return calculateFeatureSimilarity(features1, features2);
-  };
-
-  const calculateMotionSimilarityOptimized = (buffer, sequence) => {
-    if (!buffer || buffer.length < 3 || !sequence || sequence.length < 3) return 0;
-    const sampleRate = 1;
-    const sampledBuffer = buffer.filter((_, i) => i % sampleRate === 0);
-    const sampledSequence = sequence.filter((_, i) => i % sampleRate === 0);
-    if (sampledBuffer.length < 2 || sampledSequence.length < 2) return 0;
-    const lengthRatio = sampledBuffer.length / sampledSequence.length;
-    if (lengthRatio < 0.2 || lengthRatio > 10.0) return 0;
-
-    let bestSimilarity = 0;
-    const windowSize = Math.min(sampledBuffer.length, sampledSequence.length);
-    const step = Math.max(1, Math.floor(windowSize / 8));
-
-    for (let offset = 0; offset <= sampledBuffer.length - windowSize; offset += step) {
-      const segment = sampledBuffer.slice(offset, offset + windowSize);
-      let frameSimilarities = [];
-      for (let i = 0; i < Math.min(segment.length, sampledSequence.length); i++) {
-        frameSimilarities.push(compareFramesOptimized(segment[i], sampledSequence[i]));
-      }
-      const avgSim = frameSimilarities.reduce((a, b) => a + b, 0) / frameSimilarities.length;
-      if (avgSim > bestSimilarity) {
-        bestSimilarity = avgSim;
-      }
-    }
-    const lengthPenalty = Math.abs(lengthRatio - 1.0);
-    const penaltyFactor = Math.max(0.88, 1.0 - lengthPenalty * 0.03);
-    return bestSimilarity * penaltyFactor;
-  };
-
-  const calculateBodyScaleRatio = (frame1, frame2) => {
-    if (!frame1.pose || !frame2.pose || frame1.pose.length < 33 || frame2.pose.length < 33) return 1.0;
-    const getShoulderWidth = (pose) => {
-      const { x: lx, y: ly, z: lz } = pose[11];
-      const { x: rx, y: ry, z: rz } = pose[12];
-      return Math.sqrt(Math.pow(lx - rx, 2) + Math.pow(ly - ry, 2) + Math.pow(lz - rz, 2));
-    };
-    const width1 = getShoulderWidth(frame1.pose);
-    const width2 = getShoulderWidth(frame2.pose);
-    if (width1 === 0 || width2 === 0) return 1.0;
-    const ratio = width1 / width2;
-    return (ratio < 0.5 || ratio > 2.0) ? 1.0 : ratio;
-  };
-  
-  const compareFramesOptimized = (frame1, frame2) => {
-    let totalSim = 0, count = 0;
-    const compare = (f1, f2, weight) => {
-      if (f1 && f2) {
-        totalSim += compareFeaturesOptimized(f1, f2) * weight;
-        count += weight;
-      }
-    };
-    compare(frame1.left_hand_features, frame2.left_hand_features, 10);
-    compare(frame1.right_hand_features, frame2.right_hand_features, 10);
-    compare(Array.isArray(frame1.face) ? frame1.face : null, Array.isArray(frame2.face) ? frame2.face : null, 3);
-    compare(frame1.pose_features, frame2.pose_features, 2);
-    return count > 0 ? totalSim / count : 0;
-  };
-
-  /**
-   * Clears the recognized sentence.
-   */
-  const clearSentence = () => {
+  const clearSentence = (): void => {
     setRecognizedWords([]);
     setLastRecognizedId(null);
+    prevWordsLengthRef.current = 0;
+    localStorage.removeItem('haruki_session');
   };
 
-  /**
-   * Copies the recognized words (not the natural sentence) to the clipboard.
-   */
-  const copySentence = () => {
+  const deleteWord = (index: number): void => {
+    setRecognizedWords(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const copySentence = (): void => {
     navigator.clipboard.writeText(recognizedWords.join(' '));
   };
-  
-  const hasDetection = currentLandmarks && (currentLandmarks.pose || currentLandmarks.leftHand || currentLandmarks.rightHand);
+
+  const hasDetection = currentLandmarks && (
+    currentLandmarks.pose || currentLandmarks.leftHand || currentLandmarks.rightHand
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-3 h-full">
+      {/* 인식된 문장 카드 */}
       <RecognizedSentenceCard
         recognizedWords={recognizedWords}
         naturalSentence={naturalSentence}
         isConverting={isConverting}
+        isTTSEnabled={isTTSEnabled}
+        onTTSToggle={() => setIsTTSEnabled(v => !v)}
         onCopy={copySentence}
         onClear={clearSentence}
+        onDeleteWord={deleteWord}
+        onSpeakSentence={() => speak(naturalSentence)}
       />
+      {/* 실시간 인식 카드 */}
       <LiveRecognitionCard
         signs={signs}
-        hasDetection={hasDetection}
+        hasDetection={!!hasDetection}
         bestMatch={bestMatch}
-        motionBufferLength={motionBuffer.length}
+        topMatches={topMatches}
+        motionBufferLength={motionBufferLen}
+        consecutiveCount={consecutiveCount}
+        consecutiveTotal={RECOGNITION_PARAMS.CONSECUTIVE_RECOGNITION_FRAMES}
       />
     </div>
   );
 }
 
-
 // ==================================================================
-// 3. Sub-components for Readability
+// 3. 서브 컴포넌트
 // ==================================================================
 
-const RecognizedSentenceCard = ({ recognizedWords, naturalSentence, isConverting, onCopy, onClear }) => (
-  <Card className="shadow-2xl shadow-primary/10 border-2 border-primary/20 bg-card">
-    <CardHeader className="bg-gradient-to-r from-primary/50 to-primary/20 text-primary-foreground">
-      <CardTitle className="flex items-center justify-between">
-        <span className="flex items-center gap-2">
-          <TrendingUp className="w-5 h-5" />
-          인식된 문장
-        </span>
-        <div className="flex gap-2">
-          {recognizedWords.length > 0 && (
-            <>
-              <Button size="sm" variant="ghost" className="text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground" onClick={onCopy}><Copy className="w-4 h-4" /></Button>
-              <Button size="sm" variant="ghost" className="text-muted-foreground hover:bg-muted-foreground/10 hover:text-foreground" onClick={onClear}><Trash2 className="w-4 h-4" /></Button>
-            </>
-          )}
-        </div>
-      </CardTitle>
-    </CardHeader>
-    <CardContent className="pt-6">
+interface RecognizedSentenceCardProps {
+  recognizedWords: string[];
+  naturalSentence: string;
+  isConverting: boolean;
+  isTTSEnabled: boolean;
+  onTTSToggle: () => void;
+  onCopy: () => void;
+  onClear: () => void;
+  onDeleteWord: (index: number) => void;
+  onSpeakSentence: () => void;
+}
+
+const RecognizedSentenceCard = ({
+  recognizedWords, naturalSentence, isConverting, isTTSEnabled, onTTSToggle, onCopy, onClear, onDeleteWord, onSpeakSentence,
+}: RecognizedSentenceCardProps) => (
+  <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 overflow-hidden shadow-xl">
+    {/* 헤더: 액션 버튼들 */}
+    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-white/5">
+      <div className="flex items-center gap-1.5">
+        <Sparkles className="w-4 h-4 text-cyan-400" />
+        <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">인식된 문장</span>
+      </div>
+      <div className="flex items-center gap-1">
+        {/* TTS 토글 */}
+        <button
+          title={isTTSEnabled ? '음성 끄기' : '음성 켜기'}
+          onClick={onTTSToggle}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+        >
+          {isTTSEnabled
+            ? <Volume2 className="w-4 h-4 text-cyan-400" />
+            : <VolumeX className="w-4 h-4 text-white/30" />
+          }
+        </button>
+        {/* 문장 읽기 버튼 (문장 있을 때만) */}
+        {naturalSentence && (
+          <button
+            title="문장 읽기"
+            onClick={onSpeakSentence}
+            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+          >
+            <Volume2 className="w-4 h-4 text-emerald-400" />
+          </button>
+        )}
+        {recognizedWords.length > 0 && (
+          <>
+            <button
+              title="복사"
+              onClick={onCopy}
+              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <Copy className="w-4 h-4 text-white/50 hover:text-white/80" />
+            </button>
+            <button
+              title="초기화"
+              onClick={onClear}
+              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <Trash2 className="w-4 h-4 text-white/50 hover:text-red-400" />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+
+    <div className="p-4 space-y-3">
       {recognizedWords.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground"><p className="text-lg">수화를 시작하면 여기에 표시됩니다</p></div>
+        /* 빈 상태 */
+        <div className="text-center py-6">
+          <p className="text-white/20 text-sm">수화를 시작하면 여기에 표시됩니다</p>
+        </div>
       ) : (
-        <div className="space-y-4">
-          <div className="min-h-[80px] p-4 bg-muted/50 rounded-lg border-2 border-border">
-            <p className="text-sm text-muted-foreground mb-2 font-semibold">인식된 수화 단어</p>
-            <p className="text-2xl font-bold text-foreground/80 leading-relaxed">
-              {recognizedWords.map((word, idx) => <span key={idx} className="inline-block mx-1 px-2 py-1 bg-background rounded-lg shadow-sm">{word}</span>)}
+        <>
+          {/* 인식된 단어 pill 목록 */}
+          <div className="flex flex-wrap gap-2 min-h-[36px]">
+            {recognizedWords.map((word, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1 px-3 py-1 bg-white/10 border border-white/15 rounded-full text-sm text-white/80 hover:border-white/30 transition-colors group"
+              >
+                {word}
+                <button
+                  onClick={() => onDeleteWord(idx)}
+                  className="ml-0.5 text-white/30 hover:text-red-400 transition-colors leading-none"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+
+          {/* AI 변환 문장 */}
+          <div className="rounded-xl p-3 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-[11px] text-cyan-400/80 font-semibold uppercase tracking-wider">AI 문장</span>
+              {isConverting && (
+                <span className="text-[10px] text-cyan-400/50 animate-pulse">변환 중...</span>
+              )}
+            </div>
+            <p className="text-xl font-bold text-white leading-snug">
+              {naturalSentence || (
+                <span className="text-white/30 font-normal text-base">변환 중...</span>
+              )}
             </p>
           </div>
-          <div className="min-h-[100px] p-6 bg-gradient-to-br from-primary/20 to-background rounded-lg border-2 border-primary/30 shadow-lg shadow-primary/10">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-5 h-5 text-cyan-400" />
-              <p className="text-sm text-cyan-400/90 font-semibold">AI 문장 변환</p>
-              {isConverting && <span className="text-xs text-cyan-400/70 animate-pulse">변환 중...</span>}
-            </div>
-            <p className="text-3xl font-bold text-foreground leading-relaxed">{naturalSentence || <span className="text-muted-foreground text-xl">문장 변환 중...</span>}</p>
-          </div>
-        </div>
+        </>
       )}
-    </CardContent>
-  </Card>
+    </div>
+  </div>
 );
 
-const LiveRecognitionCard = ({ signs, hasDetection, bestMatch, motionBufferLength }) => (
-  <Card className="shadow-2xl shadow-purple-500/10 bg-card border-border">
-    <CardHeader className="bg-gradient-to-r from-purple-800/80 to-fuchsia-800/50 text-primary-foreground">
-      <CardTitle className="flex items-center gap-2"><Eye className="w-5 h-5" />실시간 인식</CardTitle>
-    </CardHeader>
-    <CardContent className="pt-6 space-y-4">
+// 신뢰도에 따른 색상 반환 헬퍼
+const getConfidenceColor = (similarity: number): string => {
+  if (similarity >= 75) return 'text-emerald-400';
+  if (similarity >= 60) return 'text-yellow-400';
+  return 'text-orange-400';
+};
+
+const getConfidenceBarClass = (similarity: number): string => {
+  if (similarity >= 75) return '[&>div]:bg-gradient-to-r [&>div]:from-emerald-500 [&>div]:to-green-400';
+  if (similarity >= 60) return '[&>div]:bg-gradient-to-r [&>div]:from-yellow-500 [&>div]:to-amber-400';
+  return '[&>div]:bg-gradient-to-r [&>div]:from-orange-500 [&>div]:to-red-400';
+};
+
+const getGlowClass = (similarity: number): string => {
+  if (similarity >= 75) return 'shadow-[0_0_20px_rgba(52,211,153,0.25)] border-emerald-500/40';
+  if (similarity >= 60) return 'shadow-[0_0_20px_rgba(250,204,21,0.2)] border-yellow-500/40';
+  return 'shadow-[0_0_16px_rgba(251,146,60,0.2)] border-orange-500/30';
+};
+
+interface LiveRecognitionCardProps {
+  signs: SignLanguage[];
+  hasDetection: boolean;
+  bestMatch: { sign: SignLanguage; similarity: number } | null;
+  topMatches: { sign: SignLanguage; similarity: number }[];
+  motionBufferLength: number;
+  consecutiveCount: number;
+  consecutiveTotal: number;
+}
+
+const LiveRecognitionCard = ({ signs, hasDetection, bestMatch, topMatches, motionBufferLength, consecutiveCount, consecutiveTotal }: LiveRecognitionCardProps) => (
+  <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 overflow-hidden shadow-xl flex-1">
+    {/* 헤더 */}
+    <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-white/5">
+      <Eye className="w-4 h-4 text-purple-400" />
+      <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">실시간 인식</span>
+      {/* 감지 상태 인디케이터 */}
+      <div className={`ml-auto w-2 h-2 rounded-full ${hasDetection ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+    </div>
+
+    <div className="p-4 space-y-3">
+      {/* 수화 없을 때 */}
       {!signs || signs.length === 0 ? (
-        <Alert variant="destructive" className="bg-yellow-900/20 border-yellow-700/50 text-yellow-300"><AlertCircle className="h-4 w-4 text-yellow-400" /><AlertDescription>먼저 학습 모드에서 수화를 저장해주세요</AlertDescription></Alert>
+        <div className="text-center py-8">
+          <p className="text-yellow-400/70 text-sm">학습 모드에서 수화를 먼저 저장해주세요</p>
+        </div>
       ) : !hasDetection ? (
-        <Alert className="bg-sky-900/20 border-sky-700/50 text-sky-300"><AlertCircle className="h-4 w-4 text-sky-400" /><AlertDescription>카메라 앞에 서주세요</AlertDescription></Alert>
+        <div className="text-center py-8">
+          <Activity className="w-8 h-8 text-white/15 mx-auto mb-2" />
+          <p className="text-white/30 text-sm">카메라 앞에 서주세요</p>
+        </div>
       ) : bestMatch ? (
-        <Alert className={bestMatch.similarity >= 75 ? "border-4 bg-green-900/20 border-green-600/50 text-green-300" : "border-4 bg-yellow-900/20 border-yellow-700/50 text-yellow-300"}>
-          <CheckCircle2 className={bestMatch.similarity >= 75 ? "h-5 w-5 text-green-400" : "h-5 w-5 text-yellow-400"} />
-          <AlertDescription>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-bold text-4xl mb-2 text-foreground">{bestMatch.sign.name}</p>
-                <p className="text-sm">정확도: {bestMatch.similarity.toFixed(1)}% {bestMatch.similarity >= 75 ? "(인식됨)" : "(감지 중...)"}</p>
-              </div>
-            </div>
-            <Progress value={bestMatch.similarity} className="h-3 mt-3" />
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <Alert className="bg-muted text-muted-foreground"><Activity className="h-4 w-4" /><AlertDescription>수화를 수행하세요...</AlertDescription></Alert>
-      )}
-      {motionBufferLength > 0 && (
-        <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
-          <div className="flex items-center justify-between text-sm mb-2">
-            <div className="flex items-center gap-2"><Activity className="w-4 h-4 text-primary/80" /><span className="text-primary-foreground/80 font-semibold">동작 버퍼</span></div>
-            <span className="text-primary/80">{motionBufferLength} 프레임</span>
+        /* 매칭 결과 표시 */
+        <div className={`rounded-xl p-4 border bg-black/30 transition-all duration-300 ${getGlowClass(bestMatch.similarity)}`}>
+          <div className="flex items-start justify-between mb-3">
+            {/* 인식된 단어 크게 표시 */}
+            <p className="text-5xl font-black text-white tracking-tight leading-none">
+              {bestMatch.sign.name}
+            </p>
+            {/* 신뢰도 수치 */}
+            <span className={`text-lg font-bold font-mono ${getConfidenceColor(bestMatch.similarity)}`}>
+              {bestMatch.similarity.toFixed(0)}%
+            </span>
           </div>
-          <Progress value={(motionBufferLength / 90) * 100} className="h-2 bg-primary/20" />
+          {/* 신뢰도 Progress Bar (그라데이션) */}
+          <Progress
+            value={bestMatch.similarity}
+            className={`h-2 bg-white/10 ${getConfidenceBarClass(bestMatch.similarity)}`}
+          />
+          <div className="flex items-center justify-between mt-2">
+            <p className={`text-xs font-medium ${getConfidenceColor(bestMatch.similarity)}`}>
+              {bestMatch.similarity >= 75
+                ? '인식 확정됨'
+                : bestMatch.similarity >= 60
+                  ? '감지 중...'
+                  : '후보 감지'
+              }
+            </p>
+            {/* P3-11: 연속 인식 카운트 시각화 */}
+            {consecutiveCount > 0 && (
+              <div className="flex items-center gap-1.5">
+                {Array.from({ length: consecutiveTotal }, (_, i) => (
+                  <div
+                    key={i}
+                    className={`w-2 h-2 rounded-full transition-all duration-200 ${
+                      i < consecutiveCount ? 'bg-emerald-400 scale-110' : 'bg-white/15'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* 대기 상태 */
+        <div className="text-center py-8">
+          <div className="text-5xl font-black text-white/10 mb-2">—</div>
+          <p className="text-white/25 text-sm">수화를 수행하세요</p>
         </div>
       )}
-    </CardContent>
-  </Card>
+
+      {/* 후보 목록 (2위 이하) */}
+      {topMatches.length > 1 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-white/30 font-semibold uppercase tracking-wider px-1">후보</p>
+          {topMatches.slice(1).map((m, i) => (
+            <div
+              key={m.sign.id}
+              className="flex items-center justify-between px-3 py-2 bg-white/5 rounded-lg border border-white/5"
+            >
+              <span className="text-white/50 text-sm">{i + 2}. {m.sign.name}</span>
+              <div className="flex items-center gap-2">
+                <div className="w-16 h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-white/30 rounded-full"
+                    style={{ width: `${m.similarity}%` }}
+                  />
+                </div>
+                <span className="text-white/40 text-xs font-mono w-8 text-right">
+                  {m.similarity.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 동작 버퍼 진행 바 (미니멀) */}
+      {motionBufferLength > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-white/25 uppercase tracking-wider">버퍼</span>
+            <span className="text-[10px] text-white/25 font-mono">{motionBufferLength}f</span>
+          </div>
+          <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-purple-500/50 rounded-full transition-all duration-300"
+              style={{ width: `${Math.min((motionBufferLength / 90) * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
 );

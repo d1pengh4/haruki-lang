@@ -45,12 +45,16 @@ async function debugRecognition() {
     return;
   }
 
+  // v1/v2 포맷 통일 — 모든 시퀀스를 flat하게 합산
+  const ls = signData.landmarks_sequence;
+  const allFrames = (!Array.isArray(ls) && ls?.v === 2) ? ls.sequences[0] || [] : (ls || []);
+
   console.log(`✅ 골키퍼 데이터 로드`);
-  console.log(`   프레임 수: ${signData.landmarks_sequence.length}`);
+  console.log(`   프레임 수: ${allFrames.length}`);
 
   // 중간 프레임 분석
-  const frameIndex = Math.floor(signData.landmarks_sequence.length / 2);
-  const frame = signData.landmarks_sequence[frameIndex];
+  const frameIndex = Math.floor(allFrames.length / 2);
+  const frame = allFrames[frameIndex];
 
   console.log(`\\n📊 프레임 #${frameIndex} 분석:`);
   console.log(`   timestamp: ${frame.timestamp}`);
@@ -136,8 +140,8 @@ async function debugRecognition() {
 
   // 자기 자신과의 유사도 (다른 프레임)
   console.log(`\\n🔄 같은 수화 내 프레임 간 유사도 (오른손):`);
-  const frame0 = signData.landmarks_sequence[0];
-  const frameLast = signData.landmarks_sequence[signData.landmarks_sequence.length - 1];
+  const frame0 = allFrames[0];
+  const frameLast = allFrames[allFrames.length - 1];
 
   if (frame.right_hand_features && frame0.right_hand_features) {
     const sim1 = calculateCosineSimilarity(frame.right_hand_features, frame0.right_hand_features);
@@ -146,7 +150,7 @@ async function debugRecognition() {
 
   if (frame.right_hand_features && frameLast.right_hand_features) {
     const sim2 = calculateCosineSimilarity(frame.right_hand_features, frameLast.right_hand_features);
-    console.log(`   프레임 ${frameIndex} vs ${signData.landmarks_sequence.length - 1}: ${(sim2 * 100).toFixed(1)}%`);
+    console.log(`   프레임 ${frameIndex} vs ${allFrames.length - 1}: ${(sim2 * 100).toFixed(1)}%`);
   }
 }
 

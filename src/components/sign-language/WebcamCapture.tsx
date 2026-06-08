@@ -8,6 +8,12 @@ import {
   flattenHandFeatures,
   type Landmark
 } from '@/lib/featureExtraction';
+import type { LandmarksDetected } from '@/lib/supabaseClient';
+
+interface WebcamCaptureProps {
+  onLandmarksDetected: (landmarks: LandmarksDetected) => void;
+  showLandmarks?: boolean;
+}
 
 const THEME_COLORS = {
   pose: '#FFFF00', // Bright Yellow
@@ -20,16 +26,25 @@ const THEME_COLORS = {
   stroke: '#FFFFFF'
 };
 
-export default function WebcamCapture({ onLandmarksDetected, showLandmarks = true }) {
+export default function WebcamCapture({ onLandmarksDetected, showLandmarks = true }: WebcamCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fps, setFps] = useState(0);
+  const [poseDetected, setPoseDetected] = useState(false); // 가이드라인 표시 여부
   const frameCountRef = useRef(0);
   const lastTimeRef = useRef(Date.now());
+  // P2-10: Strict Mode 이중 초기화 방지
+  const loadingRef = useRef(false);
+  // P0-4: stale closure 방지 — onResults는 매 렌더마다 최신 버전으로 교체
+  const onResultsRef = useRef<(results: any) => void>(() => {});
 
   useEffect(() => {
+    // P2-10: Strict Mode 이중 초기화 방지
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
     let mounted = true;
     let holisticInstance: any = null;
     let cameraInstance: any = null;
@@ -49,7 +64,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
         });
 
         holisticInstance.setOptions({
-          modelComplexity: 0,
+          modelComplexity: 1,          // 0→1: 정확도 향상
           smoothLandmarks: true,
           enableSegmentation: false,
           smoothSegmentation: false,
@@ -58,7 +73,8 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
           minTrackingConfidence: 0.5
         });
 
-        holisticInstance.onResults(onResults);
+        // P0-4: ref를 통해 항상 최신 onResults 호출
+        holisticInstance.onResults((results: any) => onResultsRef.current(results));
 
         if (videoRef.current) {
           cameraInstance = new (window as any).Camera(videoRef.current, {
@@ -93,6 +109,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
 
     return () => {
       mounted = false;
+      loadingRef.current = false;
       if (cameraInstance) {
         try { cameraInstance.stop(); } catch (err) { console.error('Camera stop error:', err); }
       }
@@ -120,6 +137,9 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
       lastTimeRef.current = now;
     }
 
+    // 포즈 감지 상태 업데이트 → 가이드라인 표시/숨김
+    setPoseDetected(!!results.poseLandmarks);
+
     if (!canvasRef.current || !videoRef.current || !videoRef.current.videoWidth) return;
 
     const canvas = canvasRef.current;
@@ -131,15 +151,10 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-    let bodyScale = null;
-    if (results.poseLandmarks && results.poseLandmarks.length >= 33) {
-      const p11 = results.poseLandmarks[11];
-      const p12 = results.poseLandmarks[12];
-      bodyScale = Math.hypot(p11.x - p12.x, p11.y - p12.y, p11.z - p12.z);
-    }
-
-    const leftHandFeatures = results.leftHandLandmarks ? flattenHandFeatures(extractHandFeatures(results.leftHandLandmarks, bodyScale)) : null;
-    const rightHandFeatures = results.rightHandLandmarks ? flattenHandFeatures(extractHandFeatures(results.rightHandLandmarks, bodyScale)) : null;
+    const leftHandRaw = results.leftHandLandmarks ? extractHandFeatures(results.leftHandLandmarks) : null;
+    const rightHandRaw = results.rightHandLandmarks ? extractHandFeatures(results.rightHandLandmarks) : null;
+    const leftHandFeatures = leftHandRaw ? flattenHandFeatures(leftHandRaw) : null;
+    const rightHandFeatures = rightHandRaw ? flattenHandFeatures(rightHandRaw) : null;
     const faceFeatures = results.faceLandmarks ? extractFaceFeatures(results.faceLandmarks) : null;
     const poseFeatures = results.poseLandmarks ? extractPoseFeatures(results.poseLandmarks) : null;
 
@@ -212,6 +227,9 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
     }
   };
 
+  // P0-4: 매 렌더마다 최신 onResults를 ref에 반영 (stale closure 방지)
+  onResultsRef.current = onResults;
+
   return (
     <Card className="overflow-hidden shadow-2xl shadow-primary/10 border-border bg-card">
       <div className="relative bg-black" style={{ aspectRatio: '4/3' }}>
@@ -239,6 +257,45 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
             <div className="text-center text-destructive-foreground">
               <CameraOff className="w-12 h-12 mx-auto mb-4" />
               <p>{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* 포즈 가이드라인: 사람이 감지되면 자동으로 사라짐 */}
+        {!isLoading && !poseDetected && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <svg
+              viewBox="0 0 200 340"
+              className="h-[75%] opacity-25 transition-opacity duration-500"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              {/* 머리 */}
+              <ellipse cx="100" cy="38" rx="28" ry="32" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 목 */}
+              <line x1="100" y1="70" x2="100" y2="88" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 어깨 라인 */}
+              <line x1="42" y1="110" x2="158" y2="110" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 몸통 */}
+              <line x1="100" y1="88" x2="100" y2="200" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 왼팔 */}
+              <line x1="42" y1="110" x2="20" y2="170" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              <line x1="20" y1="170" x2="10" y2="230" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 오른팔 */}
+              <line x1="158" y1="110" x2="180" y2="170" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              <line x1="180" y1="170" x2="190" y2="230" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 왼다리 */}
+              <line x1="100" y1="200" x2="72" y2="270" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              <line x1="72" y1="270" x2="65" y2="335" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              {/* 오른다리 */}
+              <line x1="100" y1="200" x2="128" y2="270" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+              <line x1="128" y1="270" x2="135" y2="335" stroke="white" strokeWidth="3" strokeDasharray="6 4" />
+            </svg>
+            {/* 안내 텍스트 */}
+            <div className="absolute bottom-8 left-0 right-0 text-center">
+              <p className="text-white/60 text-sm font-medium tracking-wide">
+                카메라 앞에 서주세요
+              </p>
             </div>
           </div>
         )}

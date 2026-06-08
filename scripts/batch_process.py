@@ -11,11 +11,10 @@ import mediapipe as mp
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
-from feature_extraction import extract_hand_features, flatten_hand_features, extract_pose_features
-import math
+from feature_extraction import extract_hand_features, flatten_hand_features, extract_pose_features, extract_face_features
 
-# .env.local 로드
-load_dotenv('.env.local')
+# .env.local 로드 (스크립트 위치 기준 절대 경로)
+load_dotenv(Path(__file__).parent.parent / '.env.local')
 
 # Supabase 클라이언트
 SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
@@ -48,20 +47,6 @@ def landmark_to_dict(landmark):
         'visibility': getattr(landmark, 'visibility', 1.0)
     }
 
-def calculate_body_scale(pose_landmarks):
-    """신체 크기 기준값 계산 (어깨 너비)"""
-    if not pose_landmarks or len(pose_landmarks) < 33:
-        return None
-
-    left_shoulder = pose_landmarks[11]
-    right_shoulder = pose_landmarks[12]
-
-    dx = left_shoulder['x'] - right_shoulder['x']
-    dy = left_shoulder['y'] - right_shoulder['y']
-    dz = left_shoulder['z'] - right_shoulder['z']
-
-    return math.sqrt(dx*dx + dy*dy + dz*dz)
-
 def process_video(video_path, fps=10, flip_horizontal=True):
     """
     영상 파일을 처리하여 랜드마크 시퀀스 추출
@@ -69,7 +54,8 @@ def process_video(video_path, fps=10, flip_horizontal=True):
     """
     flip_msg = " (좌우 반전)" if flip_horizontal else " (원본)"
     print(f"📹 비디오 처리 시작: {video_path}{flip_msg}")
-
+    # P3-13: 영상 간 holistic 상태 오염 방지
+    holistic.reset()
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print(f"❌ 비디오를 열 수 없습니다: {video_path}")
@@ -124,16 +110,15 @@ def process_video(video_path, fps=10, flip_horizontal=True):
         if results.right_hand_landmarks:
             right_hand_landmarks = [landmark_to_dict(lm) for lm in results.right_hand_landmarks.landmark]
 
+        face_raw = None
         if results.face_landmarks:
-            face_landmarks = [landmark_to_dict(lm) for lm in results.face_landmarks.landmark]
+            face_raw = [landmark_to_dict(lm) for lm in results.face_landmarks.landmark]
 
-        # 신체 크기 기준값 계산 (WebcamCapture와 동일)
-        body_scale = calculate_body_scale(pose_landmarks) if pose_landmarks else None
-
-        # 손 특징 추출 (WebcamCapture와 동일: bodyScale 전달)
-        left_hand_features_obj = extract_hand_features(left_hand_landmarks, body_scale) if left_hand_landmarks else None
-        right_hand_features_obj = extract_hand_features(right_hand_landmarks, body_scale) if right_hand_landmarks else None
+        # 손 특징 추출 (WebcamCapture와 동일)
+        left_hand_features_obj = extract_hand_features(left_hand_landmarks) if left_hand_landmarks else None
+        right_hand_features_obj = extract_hand_features(right_hand_landmarks) if right_hand_landmarks else None
         pose_features = extract_pose_features(pose_landmarks) if pose_landmarks else None
+        face_features = extract_face_features(face_raw) if face_raw else None
 
         # 특징 평탄화 (WebcamCapture와 동일)
         left_hand_features = flatten_hand_features(left_hand_features_obj) if left_hand_features_obj else None
@@ -148,7 +133,7 @@ def process_video(video_path, fps=10, flip_horizontal=True):
             'pose': pose_landmarks,
             'left_hand': left_hand_landmarks,
             'right_hand': right_hand_landmarks,
-            'face': face_landmarks,
+            'face': face_features,          # 20-dim features (not raw landmarks)
             'left_hand_features': left_hand_features,
             'right_hand_features': right_hand_features,
             'pose_features': pose_features
@@ -191,17 +176,17 @@ def read_label(json_path):
         print(f"❌ JSON 읽기 실패 ({json_path}): {e}")
         return None, None, None
 
-def save_to_supabase(name, landmarks_sequence, duration):
-    """Supabase에 저장"""
+def save_to_supabase(name, sequences, duration):
+    """v2 포맷으로 저장 (원본 + 반전 묶음, SELECT → UPDATE or INSERT)"""
+    multi_seq = {"v": 2, "sequences": sequences}
+    payload = {'name': name, 'landmarks_sequence': multi_seq, 'duration': round(duration, 3), 'thumbnail': None}
     try:
-        result = supabase.table('sign_languages').insert({
-            'name': name,
-            'landmarks_sequence': landmarks_sequence,
-            'duration': duration,
-            'thumbnail': None
-        }).execute()
-
-        print(f"✅ Supabase 저장 완료: {name}")
+        existing = supabase.table('sign_languages').select('id').eq('name', name).execute()
+        if existing.data:
+            supabase.table('sign_languages').update(payload).eq('name', name).execute()
+        else:
+            supabase.table('sign_languages').insert(payload).execute()
+        print(f"✅ Supabase 저장 완료: {name} ({len(sequences)}개 시퀀스)")
         return True
     except Exception as e:
         print(f"❌ Supabase 저장 실패: {e}")
@@ -233,14 +218,14 @@ def process_single_file(video_number):
     print(f"📝 수화 이름: {name}")
     print(f"⏰ 영상 전체를 학습에 사용합니다")
 
-    success_count = 0
+    all_sequences = []
+    best_dur = 0.0
 
-    # 두 버전 처리: 반전 + 비반전
-    for flip in [True, False]:
+    # 두 버전 처리: 원본 + 반전 → v2 포맷으로 묶어 저장
+    for flip in [False, True]:
         flip_label = "반전" if flip else "원본"
         print(f"\n📹 처리 중: {flip_label} 버전")
 
-        # 비디오 처리 (전체 영상)
         result = process_video(video_path, flip_horizontal=flip)
         if not result:
             print(f"❌ {flip_label} 버전 처리 실패")
@@ -248,31 +233,24 @@ def process_single_file(video_number):
 
         sequence, duration = result
 
-        print(f"📊 영상 처리 완료:")
-        print(f"   프레임: {len(sequence)}개")
-        print(f"   길이: {duration:.2f}초")
-
         if not sequence or len(sequence) < 5:
-            print(f"❌ 프레임이 충분하지 않습니다 (최소 5개 필요, 현재 {len(sequence)}개)")
+            print(f"❌ 프레임 부족 (현재 {len(sequence)}개)")
             continue
 
-        # Supabase 저장
-        if save_to_supabase(name, sequence, duration):
-            success_count += 1
-            print(f"✅ {flip_label} 버전 저장 완료")
-        else:
-            print(f"❌ {flip_label} 버전 저장 실패")
+        all_sequences.append(sequence)
+        if not flip:
+            best_dur = duration
+        print(f"✅ {flip_label}: {len(sequence)}프레임 ({duration:.2f}초)")
 
-    print(f"\n{'='*60}")
-    if success_count == 2:
-        print(f"✅ 완료: {video_number} ({name}) - 2개 버전 저장됨")
-    elif success_count == 1:
-        print(f"⚠️  부분 완료: {video_number} ({name}) - 1개 버전만 저장됨")
-    else:
+    if not all_sequences:
         print(f"❌ 실패: {video_number}")
-    print(f"{'='*60}\n")
+        return False
 
-    return success_count > 0
+    ok = save_to_supabase(name, all_sequences, best_dur)
+    print(f"\n{'='*60}")
+    print(f"{'✅ 완료' if ok else '❌ 저장 실패'}: {video_number} ({name})")
+    print(f"{'='*60}\n")
+    return ok
 
 if __name__ == '__main__':
     print("🚀 배치 학습 스크립트 시작")
