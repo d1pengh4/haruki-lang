@@ -506,7 +506,7 @@ if __name__ == '__main__':
   2  속도 + 노이즈 (원본+반전 = 10개, 기본값)
         """,
     )
-    parser.add_argument('--start',         type=int,   default=1501,  help='시작 번호 (기본: 1501)')
+    parser.add_argument('--start',         type=int,   default=1505,  help='시작 번호 (기본: 1505)')
     parser.add_argument('--end',           type=int,   default=3000,  help='종료 번호 (기본: 3000)')
     parser.add_argument('--numbers',       type=str,   nargs='+',     help='특정 번호 지정')
     parser.add_argument('--single',        type=str,                  help='단일 파일 테스트')
