@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,8 @@ import SignList from "@/components/sign-language/SignList";
 import VoiceMode from "@/components/sign-language/VoiceMode";
 
 // React Query 키 상수
-const SIGNS_QUERY_KEY = ['signs'];
+const SIGNS_META_KEY = ['signs-meta'];   // 경량 메타 (목록 표시용)
+const SIGNS_FULL_KEY = ['signs-full'];   // 전체 데이터 (인식용)
 
 /**
  * 하루키 수화 번역기 메인 앱 컴포넌트.
@@ -34,25 +35,45 @@ export default function SignLanguageApp() {
 
   const queryClient = useQueryClient();
 
-  // 저장된 수화 목록 조회
-  const { data: signs = [], isLoading, error } = useQuery({
-    queryKey: SIGNS_QUERY_KEY,
-    queryFn: async () => {
-      const data = await base44.entities.SignLanguage.list('-created_at');
-      return data;
-    },
+  // [빠름] 메타 쿼리: landmarks_sequence 제외 — SignList 표시 및 헤더 카운트용
+  const { data: signsMeta = [], isLoading, error } = useQuery({
+    queryKey: SIGNS_META_KEY,
+    queryFn: () => base44.entities.SignLanguage.listMeta('-created_at'),
     refetchOnMount: true,
     refetchOnWindowFocus: false,
     staleTime: 0,
     retry: 2,
   });
 
-  // 수화 삭제 뮤테이션
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => base44.entities.SignLanguage.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SIGNS_QUERY_KEY });
+  // [느림] 전체 쿼리: landmarks_sequence 포함 — RecognitionMode DTW 매칭용
+  const { data: signsForRecognition = [] } = useQuery({
+    queryKey: SIGNS_FULL_KEY,
+    queryFn: () => base44.entities.SignLanguage.list('-created_at'),
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    retry: 2,
+  });
+
+  // 이름 기준 중복 제거 — SignList 칩 표시용
+  const uniqueSignsMeta = useMemo(
+    () => Array.from(new Map(signsMeta.map(s => [s.name, s])).values()),
+    [signsMeta]
+  );
+
+  // 양쪽 캐시 무효화 헬퍼
+  const invalidateSigns = () => {
+    queryClient.invalidateQueries({ queryKey: SIGNS_META_KEY });
+    queryClient.invalidateQueries({ queryKey: SIGNS_FULL_KEY });
+  };
+
+  // 이름으로 수화 전체 삭제 (같은 이름 중복 항목 모두 포함)
+  const deleteByNameMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const toDelete = signsMeta.filter(s => s.name === name);
+      await Promise.all(toDelete.map(s => base44.entities.SignLanguage.delete(s.id)));
     },
+    onSuccess: invalidateSigns,
   });
 
   return (
@@ -99,9 +120,9 @@ export default function SignLanguageApp() {
 
         {/* 우측: 학습된 수화 수 + 학습하기 버튼 (수화 모드에서만 표시) */}
         <div className="flex items-center gap-3">
-          {appMode === 'sign' && signs.length > 0 && (
+          {appMode === 'sign' && uniqueSignsMeta.length > 0 && (
             <span className="text-xs text-white/40 font-medium">
-              학습 {signs.length}개
+              학습 {uniqueSignsMeta.length}개
             </span>
           )}
           {appMode === 'sign' && (
@@ -122,7 +143,7 @@ export default function SignLanguageApp() {
                     학습 모드
                   </DialogTitle>
                 </DialogHeader>
-                <LearningMode signs={signs} />
+                <LearningMode signs={signsMeta} onSaved={invalidateSigns} />
               </DialogContent>
             </Dialog>
           )}
@@ -141,12 +162,13 @@ export default function SignLanguageApp() {
             {/* 웹캠 + 인식 패널 (70/30 분할) */}
             <div className="flex flex-1 gap-0 overflow-hidden min-h-0">
 
-              {/* 왼쪽: 웹캠 (70%) */}
+              {/* 왼쪽: 웹캠 (70%) — 학습 모드 다이얼로그가 열리면 pause */}
               <div className="flex-[7] min-w-0 p-4 pr-2">
                 <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/50">
                   <WebcamCapture
                     onLandmarksDetected={setCurrentLandmarks}
                     showLandmarks={true}
+                    paused={showLearningMode}
                   />
                 </div>
               </div>
@@ -155,7 +177,7 @@ export default function SignLanguageApp() {
               <div className="flex-[3] min-w-0 p-4 pl-2 flex flex-col min-h-0">
                 <RecognitionMode
                   currentLandmarks={currentLandmarks}
-                  signs={signs}
+                  signs={signsForRecognition}
                 />
               </div>
             </div>
@@ -163,10 +185,10 @@ export default function SignLanguageApp() {
             {/* ── 하단: 저장된 수화 가로 스크롤 ── */}
             <div className="shrink-0 border-t border-white/5 bg-black/30 backdrop-blur-sm">
               <SignList
-                signs={signs}
+                signs={uniqueSignsMeta}
                 isLoading={isLoading}
                 error={error as Error | null}
-                deleteMutation={deleteMutation}
+                onDeleteSign={(name) => deleteByNameMutation.mutate(name)}
               />
             </div>
           </>

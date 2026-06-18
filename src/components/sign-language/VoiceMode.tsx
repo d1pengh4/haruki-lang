@@ -73,7 +73,10 @@ export default function VoiceMode() {
         if (e.results[i].isFinal) {
           const text = transcript.trim();
           if (text) {
-            setLines(prev => [...prev, { id: ++idRef.current, text }]);
+            setLines(prev => {
+              const next = [...prev, { id: ++idRef.current, text }];
+              return next.length > 100 ? next.slice(-100) : next; // 최대 100줄 유지
+            });
           }
         } else {
           interimBuf += transcript;

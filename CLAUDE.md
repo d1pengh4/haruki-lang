@@ -34,7 +34,8 @@ SignLanguageApp.tsx (orchestrator, state management)
 ├── WebcamCapture         - MediaPipe initialization, frame capture, landmark visualization
 ├── RecognitionMode       - Real-time recognition: sliding buffer, DTW/cosine scoring, sentence gen
 ├── LearningMode          - Record new gestures, quality metrics, augmentation (horizontal flip)
-└── SignList              - Browse/search/delete learned signs from Supabase
+├── SignList              - Browse/search/delete learned signs from Supabase
+└── VoiceMode             - Korean speech→text via Web Speech API (Chrome/Edge only, no external API)
 ```
 
 **Data flow:**
@@ -64,7 +65,7 @@ SignLanguageApp.tsx (orchestrator, state management)
 
 - **33D feature vector per hand**: finger extensions (5), joint angles (10), fingertip distances (10), shape ratios (3), bend angles (5)
 - **Sliding window**: 90-frame buffer; recognition fires after detecting motion then neutral pose
-- **Thresholds**: display at 55%, recognize at 60%; length penalty up to 12% discount
+- **Thresholds**: display at 35% (`DISPLAY_THRESHOLD`), recognize at 48% (`RECOGNITION_THRESHOLD`); static gestures get +2~3% on both
 - **Motion detection**: variance threshold 0.002, min 15 frames, 3 neutral frames to confirm end
 - **Normalization**: hand features normalized by `handScale` (wrist-to-middle-finger distance); pose features normalized by shoulder width
 

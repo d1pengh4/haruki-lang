@@ -60,3 +60,11 @@ credentials/
 # Training data (large video files)
 02/
 17/
+
+# Auto-generated / cache
+scripts/__pycache__/
+scripts/batch_checkpoint.json
+scripts/batch_failed.json
+.agents/
+skills-lock.json
+GEMINI.md

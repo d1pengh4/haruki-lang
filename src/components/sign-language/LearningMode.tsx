@@ -5,16 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { base44 } from "@/api/base44Client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Save, Hand, CheckCircle2, AlertCircle, Circle, StopCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import WebcamCapture from "@/components/sign-language/WebcamCapture";
-import type { SignLanguage, LandmarksDetected, LandmarkFrame, MultiSequenceData } from '@/lib/supabaseClient';
-import { trimSilence, flipSequence } from '@/lib/featureExtraction';
+import type { SignLanguage, SignMeta, LandmarksDetected, LandmarkFrame, MultiSequenceData } from '@/lib/supabaseClient';
+import { getSignSequences } from '@/lib/supabaseClient';
+import { trimSilence, flipSequence, resampleSequence } from '@/lib/featureExtraction';
 
 interface LearningModeProps {
-  signs: SignLanguage[];
+  signs: SignMeta[];
+  onSaved?: () => void; // 저장 후 부모 캐시 무효화 콜백
 }
 
 interface TakeInfo {
@@ -23,8 +25,25 @@ interface TakeInfo {
   durationSec: number;
 }
 
-const MAX_TAKES = 3;
-const MAX_RECORD_SEC = 6;
+const MAX_TAKES = 5;       // 3→5: 다양한 속도·각도 확보
+const MAX_RECORD_SEC = 8;  // 6→8: 느린 동작도 완전히 담을 수 있도록
+
+// 속도 변형 증강: FrameFeatures를 리샘플하여 LandmarkFrame으로 패킹
+// 원본 raw landmarks은 null로 두고 feature array만 보존 (인식에는 feature만 사용됨)
+function makeSpeedVariant(frames: LandmarkFrame[], ratio: number): LandmarkFrame[] {
+  const targetLen = Math.round(frames.length * ratio);
+  if (targetLen < 5 || targetLen === frames.length) return frames;
+  const resampled = resampleSequence(frames, targetLen);
+  const lastTs = frames.length > 1 ? frames[frames.length - 1].timestamp : 1000;
+  return resampled.map((f, i) => ({
+    timestamp: Math.round((i / Math.max(resampled.length - 1, 1)) * lastTs * ratio),
+    pose: null, left_hand: null, right_hand: null,
+    face: f.face,
+    left_hand_features: f.left_hand_features,
+    right_hand_features: f.right_hand_features,
+    pose_features: f.pose_features,
+  }));
+}
 
 // 테이크 품질 점수 계산 (0~100)
 function calcQuality(take: TakeInfo): number {
@@ -33,7 +52,7 @@ function calcQuality(take: TakeInfo): number {
   return Math.min(100, detectionScore + lengthScore);
 }
 
-export default function LearningMode({ signs }: LearningModeProps) {
+export default function LearningMode({ signs, onSaved }: LearningModeProps) {
   const [name, setName] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -48,9 +67,9 @@ export default function LearningMode({ signs }: LearningModeProps) {
 
   const recordingFramesRef = useRef<LandmarkFrame[]>([]);
   const startTimeRef = useRef<number | null>(null);
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const statusTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const queryClient = useQueryClient();
+  const webcamCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // status를 세팅하고 지정 시간 후 자동 클리어 (이전 타이머는 취소)
   const setStatusTimed = useCallback((s: { type: 'success' | 'error'; message: string }, ms = 3000) => {
@@ -65,23 +84,41 @@ export default function LearningMode({ signs }: LearningModeProps) {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
   }, []);
 
-  // 같은 이름의 기존 수화 찾기
-  const existingSign = signs.find(s => s.name === name.trim());
+  // 같은 이름의 기존 수화 전체 목록
+  const existingSigns = signs.filter(s => s.name === name.trim());
 
   // ---------------------------------------------------------------
   // Mutation
   // ---------------------------------------------------------------
   const saveMutation = useMutation({
-    mutationFn: ({ payload, existingId }: {
+    mutationFn: async ({ payload, existingIds, isUpdate }: {
       payload: Omit<SignLanguage, 'id' | 'created_at' | 'updated_at'>;
-      existingId?: string;
-    }) =>
-      existingId
-        ? base44.entities.SignLanguage.update(existingId, payload)
-        : base44.entities.SignLanguage.create(payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['signs'] });
-      const msg = existingSign ? '기존 수화를 업데이트했습니다!' : '수화가 저장되었습니다!';
+      existingIds: string[];
+      isUpdate: boolean;
+    }) => {
+      let mergedPayload = { ...payload };
+
+      if (existingIds.length > 0) {
+        // 기존 시퀀스(배치학습 포함) 불러와서 새 시퀀스와 병합
+        const existingSign = await base44.entities.SignLanguage.get(existingIds[0]);
+        if (existingSign) {
+          const existingSeqs = getSignSequences(existingSign);
+          const newSeqs = (payload.landmarks_sequence as MultiSequenceData).sequences;
+          mergedPayload = {
+            ...payload,
+            landmarks_sequence: { v: 2, sequences: [...existingSeqs, ...newSeqs] },
+            duration: Math.max(existingSign.duration ?? 0, payload.duration),
+          };
+        }
+        // 기존 행 전부 삭제 (병합본으로 교체)
+        await Promise.all(existingIds.map(id => base44.entities.SignLanguage.delete(id)));
+      }
+
+      return base44.entities.SignLanguage.create(mergedPayload);
+    },
+    onSuccess: (_, variables) => {
+      onSaved?.();
+      const msg = variables.isUpdate ? '기존 수화를 업데이트했습니다!' : '수화가 저장되었습니다!';
       setStatusTimed({ type: 'success', message: msg });
       setName('');
       setTakes([]);
@@ -137,9 +174,12 @@ export default function LearningMode({ signs }: LearningModeProps) {
       f => f.left_hand_features !== null || f.right_hand_features !== null
     ).length;
     const handDetectionRate = trimmed.length > 0 ? (framesWithHand / trimmed.length) * 100 : 0;
-    const durationSec = trimmed[trimmed.length - 1].timestamp / 1000;
+    // trim 전후 기준점 차이를 반영한 실제 구간 길이
+    const durationSec = trimmed.length > 1
+      ? (trimmed[trimmed.length - 1].timestamp - trimmed[0].timestamp) / 1000
+      : 0;
 
-    if (handDetectionRate < 40) {
+    if (handDetectionRate < 55) {
       setStatusTimed({ type: 'error', message: `손 감지율이 너무 낮습니다 (${handDetectionRate.toFixed(0)}%). 손이 카메라에 잘 보이도록 해주세요.` }, 4000);
       return;
     }
@@ -203,21 +243,27 @@ export default function LearningMode({ signs }: LearningModeProps) {
       return;
     }
 
-    // 각 테이크에 좌우반전 증강 추가
+    // 각 테이크에 좌우반전 + 속도 변형(0.75x, 1.25x) 증강 추가
     const allSequences: LandmarkFrame[][] = [];
     for (const take of takes) {
       allSequences.push(take.frames);
       allSequences.push(flipSequence(take.frames));
+      // 속도 변형: 긴 동작에만 적용 (0.8초 이상)
+      if (take.durationSec >= 0.8) {
+        allSequences.push(makeSpeedVariant(take.frames, 0.75));
+        allSequences.push(makeSpeedVariant(take.frames, 1.25));
+      }
     }
 
     const bestTake = takes.reduce((best, t) => calcQuality(t) > calcQuality(best) ? t : best);
     const duration = bestTake.durationSec;
 
-    // 썸네일 캡처
+    // 썸네일 캡처 — 학습 모드 내 WebcamCapture canvas 사용
     let thumbnail: string | null = null;
     try {
-      const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
-      if (canvas) thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+      if (webcamCanvasRef.current) {
+        thumbnail = webcamCanvasRef.current.toDataURL('image/jpeg', 0.6);
+      }
     } catch (e) { console.warn('썸네일 캡처 실패:', e); }
 
     const multiSeq: MultiSequenceData = { v: 2, sequences: allSequences };
@@ -229,7 +275,8 @@ export default function LearningMode({ signs }: LearningModeProps) {
         duration,
         thumbnail,
       },
-      existingId: existingSign?.id,
+      existingIds: existingSigns.map(s => s.id),
+      isUpdate: existingSigns.length > 0,
     });
   };
 
@@ -242,7 +289,10 @@ export default function LearningMode({ signs }: LearningModeProps) {
   return (
     <div className="space-y-6 text-foreground">
       <div className="grid md:grid-cols-2 gap-6">
-        <div>
+        <div ref={node => {
+          // 학습 모드 내 첫 번째 canvas 참조 (썸네일용)
+          if (node) webcamCanvasRef.current = node.querySelector('canvas');
+        }}>
           <WebcamCapture onLandmarksDetected={setCurrentLandmarks} showLandmarks={true} />
         </div>
 
@@ -266,10 +316,10 @@ export default function LearningMode({ signs }: LearningModeProps) {
                 className="text-lg bg-background/50"
                 disabled={isRecording || countdown !== null}
               />
-              {existingSign && name.trim() && (
+              {existingSigns.length > 0 && name.trim() && (
                 <p className="text-xs text-yellow-400 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
-                  이미 존재하는 수화입니다. 저장 시 덮어씁니다.
+                  이미 존재하는 수화입니다{existingSigns.length > 1 ? ` (${existingSigns.length}개)` : ''}. 저장 시 모두 교체됩니다.
                 </p>
               )}
             </div>
@@ -350,7 +400,7 @@ export default function LearningMode({ signs }: LearningModeProps) {
             {takes.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-muted-foreground">
-                  녹화된 테이크 <span className="text-xs">(저장 시 좌우반전도 자동 추가)</span>
+                  녹화된 테이크 <span className="text-xs">(저장 시 반전·속도변형 자동 추가)</span>
                 </p>
                 {takes.map((take, i) => {
                   const quality = calcQuality(take);
@@ -380,7 +430,7 @@ export default function LearningMode({ signs }: LearningModeProps) {
                   );
                 })}
                 <p className="text-xs text-muted-foreground">
-                  → 총 {takes.length * 2}개 시퀀스 저장 (원본 {takes.length} + 반전 {takes.length})
+                  → 저장 시 반전 + 속도변형(0.75x·1.25x) 자동 추가 (최대 {takes.length * 4}개 시퀀스)
                 </p>
               </div>
             )}
@@ -395,7 +445,7 @@ export default function LearningMode({ signs }: LearningModeProps) {
               <Save className="w-5 h-5 mr-2" />
               {saveMutation.isPending
                 ? '저장 중...'
-                : existingSign && name.trim()
+                : existingSigns.length > 0 && name.trim()
                   ? '수화 업데이트'
                   : '수화 저장하기'}
             </Button>
@@ -419,7 +469,7 @@ export default function LearningMode({ signs }: LearningModeProps) {
                 <li>수화 이름 입력</li>
                 <li>녹화 시작 → 카운트다운 후 동작 수행</li>
                 <li>최대 {MAX_TAKES}번 반복 녹화 (다양한 속도로)</li>
-                <li>저장 시 좌우반전 버전도 자동 추가됨</li>
+                <li>저장 시 좌우반전·속도변형 버전 자동 추가</li>
               </ol>
             </div>
           </CardContent>

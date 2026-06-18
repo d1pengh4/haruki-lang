@@ -24,16 +24,11 @@ export async function convertToNaturalSentence(words: string[]): Promise<string>
   const apiKey = import.meta.env.VITE_HUGGINGFACE_API_KEY;
   if (!apiKey) return words.join(' ');
 
-  const userPrompt = `다음 수화 단어들을 자연스러운 한국어 문장으로 변환해주세요. 단어 순서는 수화 문법 순서이므로 자연스러운 한국어로 재배치하고 조사를 추가해야 합니다.
+  const userPrompt = `수화 단어 목록: ${words.join(', ')}
 
-수화 단어: "${words.join(' ')}"
-
-규칙:
-1. 한국어 문법에 맞게 단어 순서를 재배치하세요.
-2. 적절한 조사(은/는, 이/가, 을/를 등)를 추가하세요.
-3. 문맥에 맞는 동사/형용사 어미(-습니다, -어요 등)를 사용하세요.
-4. 문장 끝에 마침표를 찍어주세요.
-5. 다른 설명 없이 변환된 문장만 간결하게 출력하세요.`;
+위 단어들을 자연스러운 한국어 문장 하나로 만들어주세요.
+- 조사와 어미를 추가하세요.
+- 반드시 한국어 문장 하나만 출력하세요. 설명, 번호, 따옴표 없이.`;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -56,8 +51,15 @@ export async function convertToNaturalSentence(words: string[]): Promise<string>
       } finally {
         clearTimeout(timeout);
       }
-      const result = response.choices[0].message.content?.trim() ?? '';
-      return result || words.join(' ');
+      const raw = response.choices[0].message.content?.trim() ?? '';
+      // 첫 줄만 취하고 따옴표·마크다운 기호 제거
+      const result = raw
+        .split('\n').find(l => l.trim().length > 0) ?? ''
+      const cleaned = result
+        .replace(/^[\s"'`「」『』【】\-\*\d\.]+/, '')
+        .replace(/[\s"'`」』】]+$/, '')
+        .trim();
+      return cleaned || words.join(' ');
     } catch (error) {
       // API 오류 시 클라이언트 초기화 (다음 시도에서 재생성)
       _hfClient = null;

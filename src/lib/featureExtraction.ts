@@ -344,7 +344,7 @@ export function extractFaceFeatures(faceLandmarks: Landmark[]): number[] | null 
 }
 
 /**
- * 전신 포즈 특징 추출 (위치/크기 불변) - 20차원
+ * 전신 포즈 특징 추출 (위치/크기 불변) - 24차원
  *
  * MediaPipe pose landmarks:
  *   0=nose, 11=leftShoulder, 12=rightShoulder,
@@ -428,21 +428,33 @@ export function extractPoseFeatures(poseLandmarks: Landmark[]): number[] | null 
   // 20. Shoulder tilt (height difference)
   const shoulderTilt = (rightShoulder.y - leftShoulder.y) / shoulderWidth;
 
+  // 21-22. 손목-코 거리 (어느 쪽 손이 얼굴 근처인지 포착 — 수화 위치 핵심)
+  const leftWristToNose  = euclideanDistance(leftWrist,  nose) / shoulderWidth;
+  const rightWristToNose = euclideanDistance(rightWrist, nose) / shoulderWidth;
+
+  // 23-24. 손목이 코보다 위에 있는 정도 (음수 = 손목이 코 아래)
+  const leftWristAboveNose  = (nose.y - leftWrist.y)  / shoulderWidth;
+  const rightWristAboveNose = (nose.y - rightWrist.y) / shoulderWidth;
+
   return [
-    leftArmAngle,       // 1
-    rightArmAngle,      // 2
-    leftUpperArmAngle,  // 3
-    rightUpperArmAngle, // 4
-    leftElbowBend,      // 5
-    rightElbowBend,     // 6
-    lw.x, lw.y, lw.z,  // 7-9
-    rw.x, rw.y, rw.z,  // 10-12
-    le.x, le.y,         // 13-14
-    re.x, re.y,         // 15-16
-    wristDist,          // 17
-    leftWristHeight,    // 18
-    rightWristHeight,   // 19
-    shoulderTilt,       // 20
+    leftArmAngle,           // 0
+    rightArmAngle,          // 1
+    leftUpperArmAngle,      // 2
+    rightUpperArmAngle,     // 3
+    leftElbowBend,          // 4
+    rightElbowBend,         // 5
+    lw.x, lw.y, lw.z,      // 6-8
+    rw.x, rw.y, rw.z,      // 9-11
+    le.x, le.y,             // 12-13
+    re.x, re.y,             // 14-15
+    wristDist,              // 16
+    leftWristHeight,        // 17
+    rightWristHeight,       // 18
+    shoulderTilt,           // 19
+    leftWristToNose,        // 20
+    rightWristToNose,       // 21
+    leftWristAboveNose,     // 22
+    rightWristAboveNose,    // 23
   ];
 }
 
@@ -463,7 +475,9 @@ export function calculateFeatureSimilarity(features1: number[], features2: numbe
     norm2 += features2[i] * features2[i];
   }
 
-  if (norm1 === 0 || norm2 === 0) return 0;
+  const ε = 1e-9;
+  if (norm1 < ε && norm2 < ε) return 1.0; // 둘 다 제로 벡터 → 동일 (정지 상태)
+  if (norm1 < ε || norm2 < ε) return 0;   // 한쪽만 제로 → 불일치
   return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
 }
 
@@ -538,16 +552,44 @@ export function trimSilence<T extends FrameFeatures>(
 }
 
 /**
- * 포즈 특징 벡터 좌우 반전 (20차원)
+ * 얼굴 특징 벡터 좌우 반전 (20차원)
+ * extractFaceFeatures의 출력 순서 기준:
+ * [0]=leftEAR, [1]=rightEAR, [2]=MAR, [3]=mouthWidthNorm,
+ * [4]=leftBrowH, [5]=rightBrowH, [6]=headTilt, [7]=headYaw, [8]=headPitch,
+ * [9]=noseToMouth, [10]=faceHeight, [11]=noseBridgeOffset,
+ * [12]=leftEyeCenterX, [13]=rightEyeCenterX,
+ * [14]=smile, [15]=browFrown, [16]=leftCheekH, [17]=rightCheekH,
+ * [18]=noseWingSpread, [19]=lipInnerRatio
+ */
+function flipFaceFeatures(f: number[]): number[] {
+  if (!f || f.length < 20) return f;
+  return [
+    f[1],   f[0],   // 0-1: leftEAR ↔ rightEAR
+    f[2],   f[3],   // 2-3: MAR, mouthWidthNorm (대칭)
+    f[5],   f[4],   // 4-5: leftBrowHeight ↔ rightBrowHeight
+    -f[6],          // 6: headTilt 부호 반전
+    -f[7],          // 7: headYaw 부호 반전
+    f[8],           // 8: headPitch (동일)
+    f[9],   f[10],  // 9-10: noseToMouth, faceHeight (동일)
+    -f[11],         // 11: noseBridgeOffset 부호 반전
+    -f[13], -f[12], // 12-13: leftEyeCenterX ↔ rightEyeCenterX (교환+부호반전)
+    f[14],  f[15],  // 14-15: smile, browFrown (대칭)
+    f[17],  f[16],  // 16-17: leftCheekHeight ↔ rightCheekHeight
+    f[18],  f[19],  // 18-19: noseWingSpread, lipInnerRatio (동일)
+  ];
+}
+
+/**
+ * 포즈 특징 벡터 좌우 반전 (24차원)
  * extractPoseFeatures의 출력 순서 기준
  */
 function flipPoseFeatures(f: number[]): number[] {
   if (f.length < 20) return f;
-  return [
+  const base = [
     f[1],  f[0],          // 0-1: leftArmAngle ↔ rightArmAngle
     f[3],  f[2],          // 2-3: leftUpperArmAngle ↔ rightUpperArmAngle
     f[5],  f[4],          // 4-5: leftElbowBend ↔ rightElbowBend
-    -f[9], f[10], f[11],  // 6-8: lw ← 반전된 rw
+    -f[9], f[10], f[11],  // 6-8: lw ← 반전된 rw (x 부호 반전)
     -f[6], f[7],  f[8],   // 9-11: rw ← 반전된 lw
     -f[14], f[15],        // 12-13: le ← 반전된 re
     -f[12], f[13],        // 14-15: re ← 반전된 le
@@ -555,6 +597,14 @@ function flipPoseFeatures(f: number[]): number[] {
     f[18], f[17],         // 17-18: leftWristHeight ↔ rightWristHeight
     -f[19],               // 19: shoulderTilt 반전
   ];
+  // 24차원 확장 (20-23)
+  if (f.length >= 24) {
+    base.push(
+      f[21], f[20],       // 20-21: leftWristToNose ↔ rightWristToNose
+      f[23], f[22],       // 22-23: leftWristAboveNose ↔ rightWristAboveNose
+    );
+  }
+  return base;
 }
 
 /**
@@ -573,6 +623,7 @@ export function flipLandmarkFrame<T extends MinimalLandmarkFrame>(frame: T): T {
     right_hand_features: frame.left_hand_features,
     pose: frame.pose ? frame.pose.map(lm => ({ ...lm, x: 1 - lm.x })) : null,
     pose_features: frame.pose_features ? flipPoseFeatures(frame.pose_features) : null,
+    face: frame.face ? flipFaceFeatures(frame.face) : null,
   };
 }
 
@@ -587,34 +638,51 @@ function compareFrameFeatures(f1: FrameFeatures, f2: FrameFeatures): number {
   let total = 0, count = 0;
 
   // 특징 비교 헬퍼:
-  //  - 둘 다 있음 → 코사인 유사도
-  //  - 한쪽만 있음 → 0.25 (약한 패널티) — 감지 노이즈나 일시적 미감지에 관대하게
+  //  - 둘 다 있음 → 코사인 유사도 (0~1, clamp)
+  //  - 한쪽만 있음 → 0.3 (약한 패널티) — 감지 노이즈나 일시적 미감지에 관대하게
   //  - 둘 다 없음 → 분모에서 제외 (패널티 없음)
   const add = (a: number[] | null, b: number[] | null, w: number) => {
     if (a && b) {
-      total += calculateFeatureSimilarity(a, b) * w;
+      // 코사인 유사도를 [0,1]로 clamp (음수 방지 — 특히 pose 정규화 좌표에서 발생)
+      total += Math.max(0, calculateFeatureSimilarity(a, b)) * w;
       count += w;
     } else if (a || b) {
-      // 한쪽만 감지: 완전 패널티 대신 부분 유사도 — 손 감지 불안정성 허용
-      total += 0.25 * w;
+      total += 0.3 * w;
       count += w;
     }
-    // 둘 다 null → 비교 불필요, 분모 제외
   };
 
-  add(f1.left_hand_features, f2.left_hand_features, 10);
+  add(f1.left_hand_features,  f2.left_hand_features,  10);
   add(f1.right_hand_features, f2.right_hand_features, 10);
-  add(f1.face, f2.face, 2);
-  add(f1.pose_features, f2.pose_features, 3); // 포즈는 개인차/카메라 위치 변동이 크므로 가중치 낮춤 (5→3)
+  add(f1.pose_features,       f2.pose_features,        8); // 손 위치(얼굴/가슴 근처) 핵심
+  add(f1.face,                f2.face,                  1); // 표정은 참고만
 
-  // count === 0 이면 두 프레임 모두 특징 없음 → 완벽 매칭 (1.0)
   return count > 0 ? total / count : 1.0;
 }
 
 /**
+ * 연속 두 프레임의 특징 변화량(velocity) 계산
+ * 손 모양의 변화 방향 = 동작 방향 정보
+ */
+function computeVelocity(curr: FrameFeatures, prev: FrameFeatures): FrameFeatures {
+  const diff = (a: number[] | null, b: number[] | null): number[] | null => {
+    if (!a || !b || a.length !== b.length) return null;
+    return a.map((v, i) => v - b[i]);
+  };
+  return {
+    left_hand_features:  diff(curr.left_hand_features,  prev.left_hand_features),
+    right_hand_features: diff(curr.right_hand_features, prev.right_hand_features),
+    face:                diff(curr.face,                prev.face),
+    pose_features:       diff(curr.pose_features,       prev.pose_features),
+  };
+}
+
+/**
  * Subsequence Dynamic Time Warping (SDTW)
- * Finds the best-matching subsequence of buffer against sequence.
- * Handles variable speed differences better than sliding-window cosine similarity.
+ *
+ * SDTW: 버퍼(긴 스트림) 안에서 시퀀스(짧은 참조)에 가장 잘 맞는 구간을 찾음.
+ * - 첫 열 초기화 0 → 버퍼 어느 위치에서든 매칭 시작 가능
+ * - velocity는 소폭 보너스(±10%)로만 반영 — 웹캠 노이즈에 robust
  * @returns similarity score 0~1
  */
 export function calculateSubsequenceDTW(
@@ -626,14 +694,33 @@ export function calculateSubsequenceDTW(
   const n = buffer.length;
   const m = sequence.length;
 
+  // velocity 사전 계산
+  const bufVels: (FrameFeatures | null)[] = buffer.map((f, i) =>
+    i > 0 ? computeVelocity(f, buffer[i - 1]) : null
+  );
+  const seqVels: (FrameFeatures | null)[] = sequence.map((f, i) =>
+    i > 0 ? computeVelocity(f, sequence[i - 1]) : null
+  );
+
   const dtw = new Float32Array((n + 1) * (m + 1)).fill(Infinity);
   const idx = (i: number, j: number) => i * (m + 1) + j;
 
+  // SDTW: 첫 열을 0으로 초기화 (버퍼 임의 위치에서 시작 허용)
   for (let i = 0; i <= n; i++) dtw[idx(i, 0)] = 0;
 
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      const sim = compareFrameFeatures(buffer[i - 1], sequence[j - 1]);
+      const shapeSim = compareFrameFeatures(buffer[i - 1], sequence[j - 1]);
+
+      // velocity: 동작 방향이 일치하면 소폭 보너스 (최대 ±10%)
+      let sim = shapeSim;
+      const bv = bufVels[i - 1];
+      const sv = seqVels[j - 1];
+      if (bv && sv) {
+        const velSim = compareFrameFeatures(bv, sv);
+        sim = Math.max(0, Math.min(1, shapeSim + (velSim - 0.5) * 0.2));
+      }
+
       const cost = 1 - sim;
       dtw[idx(i, j)] = cost + Math.min(
         dtw[idx(i - 1, j)],
@@ -649,7 +736,6 @@ export function calculateSubsequenceDTW(
   }
 
   const normalizedDist = minDist / m;
-  // SDTW는 이미 m으로 정규화하므로 별도 길이 페널티 불필요
   return Math.max(0, 1 - normalizedDist);
 }
 

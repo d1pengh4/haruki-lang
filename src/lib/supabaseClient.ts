@@ -19,6 +19,16 @@ export interface MultiSequenceData {
   sequences: LandmarkFrame[][];
 }
 
+// landmarks_sequence 없는 경량 타입 (목록 표시·삭제용)
+export interface SignMeta {
+  id: string
+  created_at: string
+  updated_at: string
+  name: string
+  duration: number
+  thumbnail?: string
+}
+
 // TypeScript 타입 정의
 export interface SignLanguage {
   id: string

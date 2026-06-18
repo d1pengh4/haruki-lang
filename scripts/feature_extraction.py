@@ -162,7 +162,7 @@ def flatten_hand_features(features):
 
 def extract_pose_features(pose_landmarks):
     """
-    전신 포즈 특징 추출 - 20차원
+    전신 포즈 특징 추출 - 24차원
     featureExtraction.ts의 extractPoseFeatures와 완전히 동일한 방식
     """
     if not pose_landmarks or len(pose_landmarks) < 33:
@@ -174,6 +174,7 @@ def extract_pose_features(pose_landmarks):
     def dist3d(a, b):
         return math.sqrt((a['x']-b['x'])**2 + (a['y']-b['y'])**2 + (a['z']-b['z'])**2)
 
+    nose           = lm(0)
     left_shoulder  = lm(11); right_shoulder = lm(12)
     left_elbow     = lm(13); right_elbow    = lm(14)
     left_wrist     = lm(15); right_wrist    = lm(16)
@@ -228,17 +229,29 @@ def extract_pose_features(pose_landmarks):
 
     shoulder_tilt = (right_shoulder['y'] - left_shoulder['y']) / sw
 
+    # 손목-코 거리 (수화 위치 핵심 특징)
+    left_wrist_to_nose  = dist3d(left_wrist,  nose) / sw
+    right_wrist_to_nose = dist3d(right_wrist, nose) / sw
+
+    # 손목이 코보다 위에 있는 정도
+    left_wrist_above_nose  = (nose['y'] - left_wrist['y'])  / sw
+    right_wrist_above_nose = (nose['y'] - right_wrist['y']) / sw
+
     return [
-        left_arm_angle, right_arm_angle,              # 1-2
-        left_upper_arm, right_upper_arm,              # 3-4
-        left_elbow_bend, right_elbow_bend,            # 5-6
-        lw['x'], lw['y'], lw['z'],                    # 7-9
-        rw['x'], rw['y'], rw['z'],                    # 10-12
-        le['x'], le['y'],                             # 13-14
-        re['x'], re['y'],                             # 15-16
-        wrist_dist,                                   # 17
-        left_wrist_h, right_wrist_h,                  # 18-19
-        shoulder_tilt,                                # 20
+        left_arm_angle, right_arm_angle,              # 0-1
+        left_upper_arm, right_upper_arm,              # 2-3
+        left_elbow_bend, right_elbow_bend,            # 4-5
+        lw['x'], lw['y'], lw['z'],                    # 6-8
+        rw['x'], rw['y'], rw['z'],                    # 9-11
+        le['x'], le['y'],                             # 12-13
+        re['x'], re['y'],                             # 14-15
+        wrist_dist,                                   # 16
+        left_wrist_h, right_wrist_h,                  # 17-18
+        shoulder_tilt,                                # 19
+        left_wrist_to_nose,                           # 20
+        right_wrist_to_nose,                          # 21
+        left_wrist_above_nose,                        # 22
+        right_wrist_above_nose,                       # 23
     ]
 
 def extract_face_features(face_landmarks):

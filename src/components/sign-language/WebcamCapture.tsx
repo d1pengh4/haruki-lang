@@ -13,6 +13,7 @@ import type { LandmarksDetected } from '@/lib/supabaseClient';
 interface WebcamCaptureProps {
   onLandmarksDetected: (landmarks: LandmarksDetected) => void;
   showLandmarks?: boolean;
+  paused?: boolean; // true이면 MediaPipe 전송 중단 (카메라 화면은 유지)
 }
 
 const THEME_COLORS = {
@@ -26,7 +27,7 @@ const THEME_COLORS = {
   stroke: '#FFFFFF'
 };
 
-export default function WebcamCapture({ onLandmarksDetected, showLandmarks = true }: WebcamCaptureProps) {
+export default function WebcamCapture({ onLandmarksDetected, showLandmarks = true, paused = false }: WebcamCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +40,11 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
   const loadingRef = useRef(false);
   // P0-4: stale closure 방지 — onResults는 매 렌더마다 최신 버전으로 교체
   const onResultsRef = useRef<(results: any) => void>(() => {});
+  // pause 상태를 ref로 관리 (onFrame 클로저에서 최신 값 참조)
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  // poseDetected 이전 값 추적 (매 프레임 setState 방지)
+  const prevPoseRef = useRef(false);
 
   useEffect(() => {
     // P2-10: Strict Mode 이중 초기화 방지
@@ -52,15 +58,15 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
     const loadMediaPipe = async () => {
       try {
         if (!(window as any).Holistic) {
-          await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js');
-          await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
-          await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js');
+          await loadScript('/mediapipe/holistic.js');
+          await loadScript('/mediapipe/camera_utils.js');
+          await loadScript('/mediapipe/drawing_utils.js');
         }
 
         if (!mounted) return;
 
         holisticInstance = new (window as any).Holistic({
-          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`
+          locateFile: (file: string) => `/mediapipe/${file}`
         });
 
         holisticInstance.setOptions({
@@ -79,7 +85,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
         if (videoRef.current) {
           cameraInstance = new (window as any).Camera(videoRef.current, {
             onFrame: async () => {
-              if (videoRef.current && mounted && holisticInstance) {
+              if (videoRef.current && mounted && holisticInstance && !pausedRef.current) {
                 try {
                   await holisticInstance.send({ image: videoRef.current });
                 } catch (err) {
@@ -137,8 +143,12 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
       lastTimeRef.current = now;
     }
 
-    // 포즈 감지 상태 업데이트 → 가이드라인 표시/숨김
-    setPoseDetected(!!results.poseLandmarks);
+    // 포즈 감지 상태: 값이 바뀔 때만 setState (매 프레임 리렌더 방지)
+    const detected = !!results.poseLandmarks;
+    if (detected !== prevPoseRef.current) {
+      prevPoseRef.current = detected;
+      setPoseDetected(detected);
+    }
 
     if (!canvasRef.current || !videoRef.current || !videoRef.current.videoWidth) return;
 

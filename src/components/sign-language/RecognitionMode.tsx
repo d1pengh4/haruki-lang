@@ -6,23 +6,23 @@ import type { SignLanguage, LandmarksDetected, LandmarkFrame } from '@/lib/supab
 import { getSignSequences } from '@/lib/supabaseClient';
 import { calculateSubsequenceDTW, trimSilence, filterNullFrames, resampleSequence } from '@/lib/featureExtraction';
 import { convertToNaturalSentence } from '@/lib/huggingfaceApi';
-import { speak, isTTSSupported } from '@/lib/ttsService';
+import { speak, speakWord, stopSpeaking, isTTSSupported } from '@/lib/ttsService';
 
 // ==================================================================
 // 1. 인식 파라미터 설정
 // ==================================================================
 
 const RECOGNITION_PARAMS = {
-  MOTION_BUFFER_DURATION_MS: 4000,
+  MOTION_BUFFER_DURATION_MS: 2500,
   ANALYSIS_INTERVAL_MS: 150,
   CONVERT_DEBOUNCE_MS: 500,
   MIN_FRAMES_FOR_ANALYSIS: 6,
   MIN_FRAMES_FOR_MOTION_VARIANCE: 4,
   NEUTRAL_POSE_CONFIRMATION_FRAMES: 2,
-  CONSECUTIVE_RECOGNITION_FRAMES: 2,
+  CONSECUTIVE_RECOGNITION_FRAMES: 3,
   MOTION_VARIANCE_THRESHOLD: 0.0012,
-  DISPLAY_THRESHOLD: 35,                  // 후보 표시 (40→35)
-  RECOGNITION_THRESHOLD: 48,             // 인식 확정 (55→48) — 손 감지 불안정 보정
+  DISPLAY_THRESHOLD: 35,
+  RECOGNITION_THRESHOLD: 50,
   NEUTRAL_POSE_VISIBILITY_THRESHOLD: 0.5,
   NEUTRAL_POSE_TORSO_FACTOR: 0.35,
   CONSECUTIVE_RECOGNITION_TIMEOUT_MS: 2000,
@@ -61,7 +61,6 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
   const [recognizedWords, setRecognizedWords] = useState<string[]>([]);
   const [naturalSentence, setNaturalSentence] = useState('');
   const [isConverting, setIsConverting] = useState(false);
-  const [lastRecognizedId, setLastRecognizedId] = useState<string | null>(null);
   const [isTTSEnabled, setIsTTSEnabled] = useState(isTTSSupported());
   // P3-11: 연속 인식 카운트 시각화
   const [consecutiveCount, setConsecutiveCount] = useState(0);
@@ -170,11 +169,11 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     return () => { if (convertTimeoutRef.current) clearTimeout(convertTimeoutRef.current); };
   }, [recognizedWords]);
 
-  // TTS: 새 단어 인식 시 음성 출력
+  // TTS: 새 단어 인식 시 단어 음성 출력 (문장 읽기 중이면 방해 안 함)
   useEffect(() => {
     if (!isTTSEnabled) return;
     if (recognizedWords.length > prevWordsLengthRef.current) {
-      speak(recognizedWords[recognizedWords.length - 1]);
+      speakWord(recognizedWords[recognizedWords.length - 1]);
     }
     prevWordsLengthRef.current = recognizedWords.length;
   }, [recognizedWords, isTTSEnabled]);
@@ -272,12 +271,12 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
           currentRecognizedSignRef.current
         ) {
           const signToAdd = currentRecognizedSignRef.current;
-          if (lastRecognizedId !== signToAdd.sign.id) {
-            setRecognizedWords(prev => [...prev, signToAdd.sign.name]);
-            setLastRecognizedId(signToAdd.sign.id);
-          }
+          setRecognizedWords(prev => [...prev, signToAdd.sign.name]);
+          // 단어 확정 후 버퍼 초기화 → 동일 단어 연속 인식 허용, 잔류 프레임 오인식 방지
+          motionBufferRef.current = [];
           currentRecognizedSignRef.current = null;
           setBestMatch(null);
+          setTopMatches([]);
           consecutiveRecognitionRef.current = { signId: null, count: 0, lastTime: 0 };
           setConsecutiveCount(0);
           neutralPoseCountRef.current = 0;
@@ -311,8 +310,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         return;
       }
 
-      // 정적 수화 감지 (동작 없이 손 모양만 유지)
-      const motionVariance = calculateMotionVariance(motionBufferRef.current);
+      // 정적 수화 감지 (동작 없이 손 모양만 유지) — cleanBuffer 기준으로 계산
+      const motionVariance = calculateMotionVariance(cleanBuffer);
       const isStatic = motionVariance <= RECOGNITION_PARAMS.MOTION_VARIANCE_THRESHOLD;
       // 정적 수화는 오인식 방지를 위해 임계값 소폭 상향
       const displayThresh = isStatic
@@ -355,19 +354,25 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         }
       }
 
-      // DTW: 리샘플링 버전(속도 정규화)과 원본(SDTW) 중 최고 점수 사용
+      // DTW 스코어링: 리샘플링(속도 정규화) + SDTW(최적 부분구간)
+      // 두 방법의 점수를 앙상블하여 우연한 고점수 방지
       const results = candidateSigns
         .map(sign => {
           const sequences = getSignSequences(sign);
           if (sequences.length === 0) return null;
           const scores = sequences.map(seq => {
-            // 1) 리샘플링: 속도 차이 정규화
-            const resampledBuffer = resampleSequence(cleanBuffer, Math.max(8, seq.length));
+            if (seq.length < 2) return 0;
+            // 1) 리샘플링: 버퍼를 시퀀스 길이에 맞게 속도 정규화
+            const resampledBuffer = resampleSequence(cleanBuffer, Math.max(6, seq.length));
             const score1 = calculateSubsequenceDTW(resampledBuffer, seq);
-            // 2) 원본 SDTW: 최적 부분 구간 탐색
+            // 2) 원본 SDTW: 최적 부분 구간 탐색 (속도 차이에 유연)
             const score2 = calculateSubsequenceDTW(cleanBuffer, seq);
-            return Math.max(score1, score2);
+            // 더 높은 쪽 70% + 더 낮은 쪽 30% — 극단적 행운 점수 완화
+            const hi = Math.max(score1, score2);
+            const lo = Math.min(score1, score2);
+            return hi * 0.7 + lo * 0.3;
           });
+          // 최고 점수 사용 (앙상블은 진짜 매칭 점수를 불필요하게 낮춤)
           const best = Math.max(...scores);
           return { sign, similarity: best * 100 };
         })
@@ -375,11 +380,16 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
       results.sort((a, b) => b.similarity - a.similarity);
 
-      const top3 = results.slice(0, 5).filter(r => r.similarity > displayThresh);
-      setTopMatches(top3);
+      // 디버그: 상위 점수 콘솔 출력 (개발 확인용)
+      if (results.length > 0) {
+        console.log('[Recognition]', results.slice(0, 3).map(r => `${r.sign.name}:${r.similarity.toFixed(1)}%`).join(' | '));
+      }
 
-      if (top3.length > 0) {
-        const bestResult = top3[0];
+      const topCandidates = results.slice(0, 5).filter(r => r.similarity > displayThresh);
+      setTopMatches(topCandidates);
+
+      if (topCandidates.length > 0) {
+        const bestResult = topCandidates[0];
         setBestMatch(bestResult);
 
         if (bestResult.similarity >= recognitionThresh) {
@@ -420,8 +430,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
   };
 
   const clearSentence = (): void => {
+    stopSpeaking();
     setRecognizedWords([]);
-    setLastRecognizedId(null);
     prevWordsLengthRef.current = 0;
     localStorage.removeItem('haruki_session');
   };

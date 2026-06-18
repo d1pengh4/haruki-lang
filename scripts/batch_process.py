@@ -65,7 +65,7 @@ FAILED_FILE      = SCRIPT_DIR / 'batch_failed.json'
 
 # ─── MediaPipe 설정 (공통) ─────────────────────────────────────────────────────
 MP_CONFIG = dict(
-    model_complexity=0,
+    model_complexity=1,          # 0→1: WebcamCapture(frontend)와 동일하게 맞춤
     smooth_landmarks=True,
     enable_segmentation=False,
     smooth_segmentation=False,
@@ -251,8 +251,10 @@ def process_video(
         if abs_frame >= end_frame:
             break
 
+        # off-by-one 수정: 증가 전에 샘플링 여부 결정 (frame_idx=0 포함)
+        should_sample = (frame_idx % interval == 0)
         frame_idx += 1
-        if frame_idx % interval != 0:
+        if not should_sample:
             continue
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -295,25 +297,52 @@ def process_video(
 def save_to_supabase(name: str, sequences: list, duration: float, dry_run: bool) -> bool:
     """
     v2 포맷으로 저장: { "v": 2, "sequences": [[frame,...], ...] }
-    이미 존재하는 수화는 UPDATE, 없으면 INSERT.
+    이미 존재하는 수화가 있으면 기존 시퀀스와 병합 (배치+직접학습 공존).
     dry_run=True면 실제 저장 없이 성공으로 간주.
     """
     if dry_run:
         print(f"  [DRY-RUN] 저장 건너뜀: {name} ({len(sequences)}개 시퀀스, {duration:.2f}초)")
         return True
 
-    payload = {
-        'name':               name,
-        'landmarks_sequence': {'v': 2, 'sequences': sequences},
-        'duration':           round(duration, 3),
-        'thumbnail':          None,
-    }
     try:
-        existing = supabase.table('sign_languages').select('id').eq('name', name).execute()
+        existing = supabase.table('sign_languages') \
+            .select('id,landmarks_sequence,duration') \
+            .eq('name', name).execute()
+
+        merged_sequences = list(sequences)  # 새 시퀀스 복사
+        merged_duration  = duration
+
         if existing.data:
-            supabase.table('sign_languages').update(payload).eq('name', name).execute()
+            # 기존 시퀀스 수집 후 병합
+            for row in existing.data:
+                ls = row.get('landmarks_sequence', {})
+                if isinstance(ls, dict) and ls.get('v') == 2:
+                    merged_sequences = ls.get('sequences', []) + merged_sequences
+                elif isinstance(ls, list):
+                    merged_sequences = [ls] + merged_sequences  # v1 단일 시퀀스
+                merged_duration = max(merged_duration, row.get('duration') or 0)
+
+            # 첫 번째 행 UPDATE, 나머지 DELETE
+            first_id = existing.data[0]['id']
+            supabase.table('sign_languages').update({
+                'name':               name,
+                'landmarks_sequence': {'v': 2, 'sequences': merged_sequences},
+                'duration':           round(merged_duration, 3),
+            }).eq('id', first_id).execute()
+
+            for row in existing.data[1:]:
+                supabase.table('sign_languages').delete().eq('id', row['id']).execute()
+
+            print(f"  MERGED: 기존 {sum(1 for r in existing.data for _ in ([r]))}개 행 → "
+                  f"총 {len(merged_sequences)}개 시퀀스")
         else:
-            supabase.table('sign_languages').insert(payload).execute()
+            supabase.table('sign_languages').insert({
+                'name':               name,
+                'landmarks_sequence': {'v': 2, 'sequences': merged_sequences},
+                'duration':           round(merged_duration, 3),
+                'thumbnail':          None,
+            }).execute()
+
         return True
     except Exception as e:
         print(f"  ERROR Supabase: {e}")
@@ -393,8 +422,7 @@ def process_one(
             augmented = build_augmented_sequences(seq, augment_level)
             all_sequences.extend(augmented)
 
-            if not flip:
-                best_dur = dur
+            best_dur = max(best_dur, dur)  # 반전만 성공해도 dur 기록
 
     if not all_sequences:
         if verbose:

@@ -1,4 +1,4 @@
-import { supabase, type SignLanguage } from '@/lib/supabaseClient'
+import { supabase, type SignLanguage, type SignMeta } from '@/lib/supabaseClient'
 
 /**
  * Base44 호환 API 클라이언트
@@ -12,6 +12,22 @@ export const base44 = {
        * @param sort - 정렬 기준 (예: '-created_at', 'name')
        * @returns 수화 목록
        */
+      // landmarks_sequence 없이 메타데이터만 조회 (빠름, 목록 표시용)
+      listMeta: async (sort = '-created_at'): Promise<SignMeta[]> => {
+        const isDescending = sort.startsWith('-')
+        const column = isDescending ? sort.slice(1) : sort
+        const { data, error } = await supabase
+          .from('sign_languages')
+          .select('id,name,thumbnail,duration,created_at,updated_at')
+          .order(column, { ascending: !isDescending })
+        if (error) {
+          console.error('수화 메타 조회 오류:', error)
+          throw new Error(`수화 메타 조회 실패: ${error.message}`)
+        }
+        return data || []
+      },
+
+      // 전체 데이터 조회 (landmarks_sequence 포함, 인식용)
       list: async (sort = '-created_at'): Promise<SignLanguage[]> => {
         // '-created_at' -> { column: 'created_at', ascending: false }
         const isDescending = sort.startsWith('-')

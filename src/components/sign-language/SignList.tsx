@@ -1,46 +1,67 @@
 import React, { useState } from 'react';
-import { Button } from "@/components/ui/button";
-import { Hand, Search, Trash2, X } from "lucide-react";
+import { Hand, Search, Check, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import type { UseMutationResult } from '@tanstack/react-query';
-import type { SignLanguage } from '@/lib/supabaseClient';
+import type { SignMeta } from '@/lib/supabaseClient';
 
 interface SignListProps {
-  signs: SignLanguage[];
+  signs: SignMeta[];         // 이름 기준 중복 제거된 목록 (부모에서 처리)
   isLoading: boolean;
   error: Error | null;
-  deleteMutation: UseMutationResult<{ success: boolean }, Error, string, unknown>;
+  onDeleteSign: (name: string) => void;
 }
 
-// 개별 수화 chip 컴포넌트
-const SignChip = ({ sign, deleteMutation }: { sign: SignLanguage; deleteMutation: SignListProps['deleteMutation'] }) => (
-  <div className="group flex items-center gap-2 pl-2 pr-1 py-1 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-full transition-all duration-150 shrink-0">
-    {/* 썸네일 또는 아이콘 */}
-    {sign.thumbnail ? (
-      <img
-        src={sign.thumbnail}
-        alt={sign.name}
-        className="w-6 h-6 rounded-full object-cover shrink-0"
-      />
-    ) : (
-      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-violet-500/30 to-cyan-500/30 flex items-center justify-center shrink-0">
-        <Hand className="w-3 h-3 text-white/50" />
-      </div>
-    )}
-    {/* 이름 */}
-    <span className="text-sm text-white/70 font-medium whitespace-nowrap">{sign.name}</span>
-    {/* 삭제 버튼 (호버 시 표시) */}
-    <button
-      onClick={() => deleteMutation.mutate(sign.id)}
-      title="삭제"
-      className="w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all duration-150 shrink-0"
-    >
-      <X className="w-3 h-3 text-red-400" />
-    </button>
-  </div>
-);
+// 개별 수화 chip — 2단계 삭제 확인
+const SignChip = ({ sign, onDeleteSign }: { sign: SignMeta; onDeleteSign: (name: string) => void }) => {
+  const [confirming, setConfirming] = useState(false);
 
-export default function SignList({ signs, isLoading, error, deleteMutation }: SignListProps) {
+  return (
+    <div className="group flex items-center gap-2 pl-2 pr-1 py-1 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-full transition-all duration-150 shrink-0">
+      {/* 썸네일 또는 아이콘 */}
+      {sign.thumbnail ? (
+        <img
+          src={sign.thumbnail}
+          alt={sign.name}
+          className="w-6 h-6 rounded-full object-cover shrink-0"
+        />
+      ) : (
+        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-violet-500/30 to-cyan-500/30 flex items-center justify-center shrink-0">
+          <Hand className="w-3 h-3 text-white/50" />
+        </div>
+      )}
+      {/* 이름 */}
+      <span className="text-sm text-white/70 font-medium whitespace-nowrap">{sign.name}</span>
+      {/* 삭제: 1차 클릭 → 확인 상태, 2차 클릭 → 삭제 */}
+      {confirming ? (
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => { onDeleteSign(sign.name); setConfirming(false); }}
+            title="삭제 확인"
+            className="w-5 h-5 rounded-full flex items-center justify-center bg-red-500/20 hover:bg-red-500/40 transition-colors shrink-0"
+          >
+            <Check className="w-3 h-3 text-red-400" />
+          </button>
+          <button
+            onClick={() => setConfirming(false)}
+            title="취소"
+            className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors shrink-0"
+          >
+            <X className="w-3 h-3 text-white/40" />
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          title="삭제"
+          className="w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all duration-150 shrink-0"
+        >
+          <X className="w-3 h-3 text-red-400" />
+        </button>
+      )}
+    </div>
+  );
+};
+
+export default function SignList({ signs, isLoading, error, onDeleteSign }: SignListProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
   // 검색어로 필터링
@@ -86,7 +107,7 @@ export default function SignList({ signs, isLoading, error, deleteMutation }: Si
         ) : (
           <div className="flex items-center gap-2">
             {filteredSigns.map((sign) => (
-              <SignChip key={sign.id} sign={sign} deleteMutation={deleteMutation} />
+              <SignChip key={sign.id} sign={sign} onDeleteSign={onDeleteSign} />
             ))}
           </div>
         )}
