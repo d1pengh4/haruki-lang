@@ -13,7 +13,7 @@ Extracts hand, pose, and face landmarks using Google MediaPipe Holistic, then ma
 | Layer | Stack |
 |-------|-------|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query |
-| ML | Google MediaPipe Holistic (CDN), Custom DTW / Cosine matching |
+| ML | Google MediaPipe Holistic (local), Custom SDTW / Cosine matching |
 | Backend | Supabase (PostgreSQL + JSONB) |
 | Batch | Python 3, OpenCV, MediaPipe Python SDK |
 | Deploy | Vercel |
@@ -60,13 +60,15 @@ SignLanguageApp.tsx
 
 ```
 WebcamCapture
-  └─ MediaPipe Holistic (CDN)
+  └─ MediaPipe Holistic (local /mediapipe/)
        └─ hands 21pt × 2, pose 33pt, face 468pt
             └─ featureExtraction.ts
-                 └─ 33D feature vector (scale, position, rotation invariant)
+                 ├─ hand: 33D feature vector (scale/position/rotation invariant)
+                 ├─ pose: 24D feature vector (shoulder-normalized, wrist-to-nose)
+                 └─ face: 20D feature vector (EAR, MAR, brow, head angles…)
                       └─ RecognitionMode
-                           ├─ 90-frame sliding window buffer
-                           ├─ DTW + cosine compare against all signs in Supabase
+                           ├─ 2.5s sliding window buffer (~75 frames)
+                           ├─ Subsequence DTW + cosine compare against Supabase
                            └─ append to sentence when score exceeds threshold
 ```
 
@@ -76,7 +78,9 @@ Feature vectors are pre-calculated at save time and stored inside each `landmark
 
 ## Recognition Algorithm
 
-Each hand is represented as a **33-dimensional feature vector** normalized by the wrist-to-middle-finger distance, making it invariant to hand scale and camera distance.
+Three feature vectors are extracted per frame and concatenated for matching.
+
+**Hand (33D per hand)** — normalized by wrist-to-middle-finger distance
 
 | Index | Feature | Dim |
 |-------|---------|-----|
@@ -86,18 +90,24 @@ Each hand is represented as a **33-dimensional feature vector** normalized by th
 | 25–27 | Hand shape ratios | 3 |
 | 28–32 | Finger bend angles | 5 |
 
-Recognition runs in two passes: cosine similarity quickly filters candidates, then DTW computes a time-warp-robust final score for each survivor. A sliding window searches the buffer for the best-matching segment, with a length penalty applied proportional to the size difference between the buffer segment and the stored sequence.
+**Pose (24D)** — normalized by shoulder width, includes wrist-to-nose distance (critical for sign location)
+
+**Face (20D)** — EAR, MAR, brow heights, head angles, smile intensity (weight 1/29, for reference only)
+
+Recognition uses **Subsequence DTW (SDTW)**: finds the best-matching sub-window inside the 2.5s buffer for each stored sequence, with a ±10% velocity bonus. For robustness, both original and resampled buffer variants are evaluated and the best score is used. Cosine pre-filtering limits full DTW to the top-12 candidates.
 
 **Key parameters**
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Buffer size | 90 frames | ~3 seconds of history |
+| Buffer size | ~75 frames | 2.5 seconds of history |
 | Display threshold | 35% | minimum score to show a candidate |
-| Recognition threshold | 48% | minimum score to append to sentence |
-| Max length penalty | 12% | correction for sequence length mismatch |
+| Recognition threshold | 50% | minimum score to confirm |
+| Consecutive frames | 3 | required to lock in a recognition |
 | Motion variance threshold | 0.0012 | motion onset detection |
-| Neutral pose confirmation | 2 frames | motion end detection |
+| Neutral pose confirmation | 2 frames | word boundary detection |
+
+**Augmentation (LearningMode)** — each recorded take generates: original + horizontal flip + 0.75× speed + 1.25× speed (up to 4 sequences/take, 5 takes max). All sequences are merged with any existing entries, so batch-learned and manually-recorded data coexist.
 
 ---
 
@@ -161,10 +171,10 @@ python3 batch_process.py
 
 ```
 MP4 (OpenCV)
-  └─ MediaPipe Holistic (sampled at 10 FPS)
-       └─ compute 33D feature vectors
-            └─ original + horizontal flip (data augmentation)
-                 └─ save to Supabase as JSONB
+  └─ MediaPipe Holistic (sampled at 15 FPS, model_complexity=1)
+       └─ compute hand 33D + pose 24D + face 20D feature vectors
+            └─ original + horizontal flip + speed variants (augment level 0/1/2)
+                 └─ merge with existing sequences in Supabase (v2 format)
 ```
 
 ---
@@ -187,8 +197,9 @@ MP4 (OpenCV)
 
 ## Notes
 
-- MediaPipe is loaded at runtime from CDN. The app will not work in offline environments or where CDN URLs are blocked by CSP.
+- MediaPipe is loaded from `/mediapipe/` (local static files bundled in `public/`). No CDN dependency.
 - Camera access requires HTTPS or localhost.
+- The `name` unique constraint on `sign_languages` should be dropped to allow multiple versions per sign — see `scripts/SETUP.md`.
 - RLS is currently open. Configure Supabase policies before exposing to production users.
 
 ---
