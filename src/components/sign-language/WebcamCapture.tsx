@@ -1,5 +1,4 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Card } from "@/components/ui/card";
 import { Camera, CameraOff } from 'lucide-react';
 import {
   extractHandFeatures,
@@ -17,14 +16,14 @@ interface WebcamCaptureProps {
 }
 
 const THEME_COLORS = {
-  pose: '#FFFF00', // Bright Yellow
-  poseKey: '#FF0000', // Bright Red
-  leftHand: '#00FFFF', // Cyan
-  leftHandKey: '#0000FF', // Blue
-  rightHand: '#FF00FF', // Magenta
-  rightHandKey: '#00FF00', // Green
-  face: '#FFA500', // Orange
-  stroke: '#FFFFFF'
+  pose: 'rgba(148,163,184,0.45)',     // slate-300 — 전신 뼈대 (은은하게)
+  poseKey: 'rgba(129,140,248,0.9)',   // indigo-400 — 주요 관절
+  leftHand: 'rgba(34,211,238,0.8)',   // cyan-400 — 왼손 뼈대
+  leftHandKey: 'rgba(6,182,212,1)',   // cyan-500 — 왼손 관절
+  rightHand: 'rgba(167,139,250,0.8)',  // violet-400 — 오른손 뼈대
+  rightHandKey: 'rgba(139,92,246,1)', // violet-500 — 오른손 관절
+  face: 'rgba(251,191,36,0.45)',      // amber-400 — 얼굴 (최소화)
+  stroke: 'rgba(255,255,255,0.7)'
 };
 
 export default function WebcamCapture({ onLandmarksDetected, showLandmarks = true, paused = false }: WebcamCaptureProps) {
@@ -186,36 +185,33 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
       
       const drawUtils = (window as any);
       if (results.poseLandmarks) {
-        drawUtils.drawConnectors(ctx, results.poseLandmarks, drawUtils.POSE_CONNECTIONS, { color: THEME_COLORS.pose, lineWidth: 2 });
+        drawUtils.drawConnectors(ctx, results.poseLandmarks, drawUtils.POSE_CONNECTIONS, { color: THEME_COLORS.pose, lineWidth: 1.5 });
         [0, 11, 12, 13, 14, 15, 16, 23, 24].forEach(idx => {
           if (results.poseLandmarks[idx]) {
             const lm = results.poseLandmarks[idx];
             ctx.beginPath();
-            ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 6, 0, 2 * Math.PI);
+            ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 4, 0, 2 * Math.PI);
             ctx.fillStyle = THEME_COLORS.poseKey;
             ctx.fill();
-            ctx.strokeStyle = THEME_COLORS.stroke;
-            ctx.lineWidth = 2;
-            ctx.stroke();
           }
         });
       }
 
       if (results.leftHandLandmarks) {
-        drawUtils.drawConnectors(ctx, results.leftHandLandmarks, drawUtils.HAND_CONNECTIONS, { color: THEME_COLORS.leftHand, lineWidth: 3 });
+        drawUtils.drawConnectors(ctx, results.leftHandLandmarks, drawUtils.HAND_CONNECTIONS, { color: THEME_COLORS.leftHand, lineWidth: 2 });
         results.leftHandLandmarks.forEach((lm: Landmark) => {
           ctx.beginPath();
-          ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 5, 0, 2 * Math.PI);
+          ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 3.5, 0, 2 * Math.PI);
           ctx.fillStyle = THEME_COLORS.leftHandKey;
           ctx.fill();
         });
       }
 
       if (results.rightHandLandmarks) {
-        drawUtils.drawConnectors(ctx, results.rightHandLandmarks, drawUtils.HAND_CONNECTIONS, { color: THEME_COLORS.rightHand, lineWidth: 3 });
+        drawUtils.drawConnectors(ctx, results.rightHandLandmarks, drawUtils.HAND_CONNECTIONS, { color: THEME_COLORS.rightHand, lineWidth: 2 });
         results.rightHandLandmarks.forEach((lm: Landmark) => {
           ctx.beginPath();
-          ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 5, 0, 2 * Math.PI);
+          ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 3.5, 0, 2 * Math.PI);
           ctx.fillStyle = THEME_COLORS.rightHandKey;
           ctx.fill();
         });
@@ -226,7 +222,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
           if (results.faceLandmarks[idx]) {
             const lm = results.faceLandmarks[idx];
             ctx.beginPath();
-            ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 4, 0, 2 * Math.PI);
+            ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 3, 0, 2 * Math.PI);
             ctx.fillStyle = THEME_COLORS.face;
             ctx.fill();
           }
@@ -241,8 +237,8 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
   onResultsRef.current = onResults;
 
   return (
-    <Card className="overflow-hidden shadow-2xl shadow-primary/10 border-border bg-card">
-      <div className="relative bg-black" style={{ aspectRatio: '4/3' }}>
+    <div className="overflow-hidden w-full h-full">
+      <div className="relative bg-black w-full h-full">
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover transform -scale-x-100"
@@ -254,19 +250,23 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
         />
         
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="text-center text-foreground">
-              <Camera className="w-12 h-12 mx-auto mb-4 animate-pulse text-primary" />
-              <p>카메라를 시작하는 중...</p>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                <Camera className="w-7 h-7 text-indigo-400 animate-pulse" />
+              </div>
+              <p className="text-white/50 text-sm">카메라를 시작하는 중...</p>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="text-center text-destructive-foreground">
-              <CameraOff className="w-12 h-12 mx-auto mb-4" />
-              <p>{error}</p>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <CameraOff className="w-7 h-7 text-red-400" />
+              </div>
+              <p className="text-white/50 text-sm">{error}</p>
             </div>
           </div>
         )}
@@ -310,37 +310,36 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
           </div>
         )}
 
-        <div className="absolute top-4 left-4 space-y-2">
-          <div className="bg-black/50 text-foreground px-3 py-1 rounded-full text-sm flex items-center gap-2 backdrop-blur-sm border border-white/10">
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            실시간
-          </div>
-          <div className="bg-black/50 text-foreground px-3 py-1 rounded-lg text-xs font-mono backdrop-blur-sm border border-white/10">
-            {fps} FPS
-          </div>
+        {/* 상단 좌측: 실시간 + FPS 단일 pill */}
+        <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/50 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+          </span>
+          <span className="text-xs text-white/60 font-medium">실시간</span>
+          <span className="text-xs text-white/25 font-mono">{fps}fps</span>
         </div>
 
+        {/* 상단 우측: 랜드마크 범례 단일 pill */}
         {showLandmarks && (
-          <div className="absolute top-4 right-4 space-y-1 text-xs">
-            <div className="bg-black/50 text-foreground/80 px-2 py-1 rounded flex items-center gap-2 backdrop-blur-sm border border-white/10">
-              <div className="w-3 h-3 rounded-full" style={{backgroundColor: THEME_COLORS.pose}} />
-              전신
-            </div>
-            <div className="bg-black/50 text-foreground/80 px-2 py-1 rounded flex items-center gap-2 backdrop-blur-sm border border-white/10">
-              <div className="w-3 h-3 rounded-full" style={{backgroundColor: THEME_COLORS.leftHand}}/>
-              왼손
-            </div>
-            <div className="bg-black/50 text-foreground/80 px-2 py-1 rounded flex items-center gap-2 backdrop-blur-sm border border-white/10">
-              <div className="w-3 h-3 rounded-full" style={{backgroundColor: THEME_COLORS.rightHand}}/>
-              오른손
-            </div>
-             <div className="bg-black/50 text-foreground/80 px-2 py-1 rounded flex items-center gap-2 backdrop-blur-sm border border-white/10">
-              <div className="w-3 h-3 rounded-full" style={{backgroundColor: THEME_COLORS.face}}/>
-              얼굴
-            </div>
+          <div className="absolute top-3 right-3 flex items-center gap-2.5 bg-black/50 backdrop-blur-sm border border-white/10 rounded-full px-3 py-1.5">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full" style={{backgroundColor: THEME_COLORS.leftHandKey}} />
+              <span className="text-[10px] text-white/40">왼손</span>
+            </span>
+            <span className="w-px h-3 bg-white/10" />
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full" style={{backgroundColor: THEME_COLORS.rightHandKey}} />
+              <span className="text-[10px] text-white/40">오른손</span>
+            </span>
+            <span className="w-px h-3 bg-white/10" />
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full" style={{backgroundColor: THEME_COLORS.poseKey}} />
+              <span className="text-[10px] text-white/40">전신</span>
+            </span>
           </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

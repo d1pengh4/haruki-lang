@@ -703,6 +703,8 @@ export function calculateSubsequenceDTW(
   );
 
   const dtw = new Float32Array((n + 1) * (m + 1)).fill(Infinity);
+  // 각 셀에서 소비된 버퍼 프레임 수 추적 (경로 길이 패널티용)
+  const pLen = new Uint16Array((n + 1) * (m + 1)).fill(0);
   const idx = (i: number, j: number) => i * (m + 1) + j;
 
   // SDTW: 첫 열을 0으로 초기화 (버퍼 임의 위치에서 시작 허용)
@@ -722,21 +724,37 @@ export function calculateSubsequenceDTW(
       }
 
       const cost = 1 - sim;
-      dtw[idx(i, j)] = cost + Math.min(
-        dtw[idx(i - 1, j)],
-        dtw[idx(i, j - 1)],
-        dtw[idx(i - 1, j - 1)]
-      );
+      const dDiag = dtw[idx(i - 1, j - 1)];
+      const dBuf  = dtw[idx(i - 1, j)];
+      const dSeq  = dtw[idx(i, j - 1)];
+      const minPrev = Math.min(dDiag, dBuf, dSeq);
+      dtw[idx(i, j)] = cost + minPrev;
+
+      // 경로 길이: 버퍼 프레임 소비 여부에 따라 누적
+      if (minPrev === dDiag)     pLen[idx(i, j)] = pLen[idx(i - 1, j - 1)] + 1; // 양쪽 전진
+      else if (minPrev === dBuf) pLen[idx(i, j)] = pLen[idx(i - 1, j)]     + 1; // 버퍼만 전진
+      else                       pLen[idx(i, j)] = pLen[idx(i, j - 1)];          // 시퀀스만 전진
     }
   }
 
   let minDist = Infinity;
+  let bestPathLen = m;
   for (let i = 1; i <= n; i++) {
-    if (dtw[idx(i, m)] < minDist) minDist = dtw[idx(i, m)];
+    if (dtw[idx(i, m)] < minDist) {
+      minDist = dtw[idx(i, m)];
+      bestPathLen = pLen[idx(i, m)];
+    }
   }
 
+  // 매칭된 버퍼 구간 길이 vs 참조 시퀀스 길이 비율 검사
+  // 너무 짧은 버퍼 구간(초압축) 또는 너무 긴 구간(초신장)에 패널티
+  const lengthRatio = bestPathLen / m;
+  let lengthPenalty = 1.0;
+  if (lengthRatio < 0.4 || lengthRatio > 3.0) lengthPenalty = 0.5;
+  else if (lengthRatio < 0.6 || lengthRatio > 2.0) lengthPenalty = 0.8;
+
   const normalizedDist = minDist / m;
-  return Math.max(0, 1 - normalizedDist);
+  return Math.max(0, 1 - normalizedDist) * lengthPenalty;
 }
 
 /**

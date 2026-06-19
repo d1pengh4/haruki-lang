@@ -76,14 +76,14 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
   // P0-1: 수화별 평균 특징 캐시
   const signMeansRef = useRef<Map<string, SignMean>>(new Map());
 
-  // P0-1: signs 변경 시 각 수화의 평균 특징 벡터 사전 계산
+  // P0-1: signs 변경 시 각 수화의 평균 특징 벡터 사전 계산 (손 + pose 포함)
   useEffect(() => {
     const means = new Map<string, SignMean>();
     for (const sign of signs) {
       const seqs = getSignSequences(sign);
       if (!seqs.length) { means.set(sign.id, { combined: null }); continue; }
-      const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0);
-      let lhN = 0, rhN = 0;
+      const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0), poseAcc = new Array(24).fill(0);
+      let lhN = 0, rhN = 0, poseN = 0;
       for (const seq of seqs) {
         for (const f of seq) {
           if (f.left_hand_features?.length === 33) {
@@ -92,12 +92,16 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
           if (f.right_hand_features?.length === 33) {
             f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
           }
+          if (f.pose_features?.length === 24) {
+            f.pose_features.forEach((v, i) => poseAcc[i] += v); poseN++;
+          }
         }
       }
-      const lh = lhN > 0 ? lhAcc.map(v => v / lhN) : null;
-      const rh = rhN > 0 ? rhAcc.map(v => v / rhN) : null;
-      const combined = (lh || rh)
-        ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0))]
+      const lh   = lhN   > 0 ? lhAcc.map(v => v / lhN)     : null;
+      const rh   = rhN   > 0 ? rhAcc.map(v => v / rhN)     : null;
+      const pose = poseN > 0 ? poseAcc.map(v => v / poseN) : null;
+      const combined = (lh || rh || pose)
+        ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0)), ...(pose ?? new Array(24).fill(0))]
         : null;
       means.set(sign.id, { combined });
     }
@@ -325,9 +329,9 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       const PRE_FILTER_K = 12;
       let candidateSigns = signs;
       if (signs.length > PRE_FILTER_K) {
-        // 버퍼 평균 특징 계산
-        const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0);
-        let lhN = 0, rhN = 0;
+        // 버퍼 평균 특징 계산 (손 + pose 포함)
+        const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0), poseAcc = new Array(24).fill(0);
+        let lhN = 0, rhN = 0, poseN = 0;
         for (const f of cleanBuffer) {
           if (f.left_hand_features?.length === 33) {
             f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
@@ -335,11 +339,15 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
           if (f.right_hand_features?.length === 33) {
             f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
           }
+          if (f.pose_features?.length === 24) {
+            f.pose_features.forEach((v, i) => poseAcc[i] += v); poseN++;
+          }
         }
-        const lh = lhN > 0 ? lhAcc.map(v => v / lhN) : null;
-        const rh = rhN > 0 ? rhAcc.map(v => v / rhN) : null;
-        const bufCombined = (lh || rh)
-          ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0))]
+        const lh   = lhN   > 0 ? lhAcc.map(v => v / lhN)     : null;
+        const rh   = rhN   > 0 ? rhAcc.map(v => v / rhN)     : null;
+        const pose = poseN > 0 ? poseAcc.map(v => v / poseN) : null;
+        const bufCombined = (lh || rh || pose)
+          ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0)), ...(pose ?? new Array(24).fill(0))]
           : null;
         if (bufCombined) {
           candidateSigns = signs

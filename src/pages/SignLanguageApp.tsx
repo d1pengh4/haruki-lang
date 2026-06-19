@@ -80,60 +80,60 @@ export default function SignLanguageApp() {
     <div className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-slate-900 text-white flex flex-col">
 
       {/* ── 헤더 ── */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-black/40 backdrop-blur-sm shrink-0">
+      <header className="flex items-center justify-between px-5 py-2.5 border-b border-white/[0.06] bg-black/50 backdrop-blur-md shrink-0">
         {/* 로고 + 타이틀 */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/30">
-            <Hand className="w-5 h-5 text-white" />
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 via-violet-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md shadow-violet-700/40">
+            <Hand className="w-4 h-4 text-white" />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-lg font-bold text-white tracking-tight">하루키</span>
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="flex items-center gap-1">
+            <span className="text-base font-bold text-white tracking-tight">하루키</span>
+            <Sparkles className="w-3 h-3 text-violet-400" />
           </div>
+          {appMode === 'sign' && uniqueSignsMeta.length > 0 && (
+            <span className="ml-1 text-[11px] text-white/25 font-mono bg-white/5 px-2 py-0.5 rounded-full">
+              {uniqueSignsMeta.length}
+            </span>
+          )}
         </div>
 
         {/* 중앙: 모드 전환 토글 */}
-        <div className="flex items-center bg-white/5 rounded-xl p-1 gap-1">
+        <div className="flex items-center bg-white/[0.06] rounded-xl p-1 gap-0.5">
           <button
             onClick={() => setAppMode('sign')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
               appMode === 'sign'
-                ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/30'
-                : 'text-white/40 hover:text-white/70'
+                ? 'bg-violet-600/90 text-white shadow shadow-violet-700/40'
+                : 'text-white/35 hover:text-white/60'
             }`}
           >
             <Hand className="w-3.5 h-3.5" />
-            수화 모드
+            수화
           </button>
           <button
             onClick={() => setAppMode('voice')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
               appMode === 'voice'
-                ? 'bg-violet-600 text-white shadow-lg shadow-violet-600/30'
-                : 'text-white/40 hover:text-white/70'
+                ? 'bg-violet-600/90 text-white shadow shadow-violet-700/40'
+                : 'text-white/35 hover:text-white/60'
             }`}
           >
             <Mic className="w-3.5 h-3.5" />
-            음성 모드
+            음성
           </button>
         </div>
 
-        {/* 우측: 학습된 수화 수 + 학습하기 버튼 (수화 모드에서만 표시) */}
-        <div className="flex items-center gap-3">
-          {appMode === 'sign' && uniqueSignsMeta.length > 0 && (
-            <span className="text-xs text-white/40 font-medium">
-              학습 {uniqueSignsMeta.length}개
-            </span>
-          )}
+        {/* 우측: 학습하기 버튼 */}
+        <div className="flex items-center gap-2 w-[140px] justify-end">
           {appMode === 'sign' && (
             <Dialog open={showLearningMode} onOpenChange={setShowLearningMode}>
               <DialogTrigger asChild>
                 <Button
                   size="sm"
-                  className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/30 border-0 gap-1.5"
+                  className="h-8 bg-violet-600/80 hover:bg-violet-500 text-white border border-violet-500/30 shadow-sm gap-1.5 text-xs font-medium"
                 >
-                  <BookOpen className="w-4 h-4" />
-                  수화 학습하기
+                  <BookOpen className="w-3.5 h-3.5" />
+                  학습하기
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto bg-slate-900 border-white/10 text-white">
@@ -146,9 +146,6 @@ export default function SignLanguageApp() {
                 <LearningMode signs={signsMeta} onSaved={invalidateSigns} />
               </DialogContent>
             </Dialog>
-          )}
-          {appMode === 'voice' && (
-            <span className="text-xs text-white/25 font-medium w-[120px]" />
           )}
         </div>
       </header>
