@@ -7,444 +7,547 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --blue:#6B7ED4;--cyan:#22D3EE;--violet:#8B5CF6;--green:#34D399;
-  --bg:#050810;--card:rgba(255,255,255,0.04);--border:rgba(255,255,255,0.08);
+  --a:#5B5BD6;--a2:#7C3AED;--cy:#22D3EE;--gr:#10B981;--rd:#F43F5E;
+  --bg:#07080F;--br:rgba(255,255,255,0.07);
+  --t2:rgba(255,255,255,0.52);--t3:rgba(255,255,255,0.24);
 }
 html,body{width:100%;height:100%;background:#000;overflow:hidden;
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+  font-family:-apple-system,'Segoe UI',system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
 
 #stage{
   position:absolute;top:50%;left:50%;
   transform:translate(-50%,-50%);
   width:960px;height:540px;
-  background:var(--bg);overflow:hidden;border-radius:12px;
-  box-shadow:0 0 80px rgba(107,126,212,0.3);
+  background:var(--bg);overflow:hidden;border-radius:14px;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.06),0 60px 120px rgba(0,0,0,0.95);
 }
 
-/* Background canvas */
-#bgc{position:absolute;inset:0;z-index:0}
+/* ─── Canvas layers ─── */
+#bgCvs{position:absolute;inset:0;z-index:0;opacity:1}
+#fxCvs{position:absolute;inset:0;z-index:2;pointer-events:none}
 
-/* Scenes */
-.sc{
-  position:absolute;inset:0;z-index:1;
-  opacity:0;pointer-events:none;
-  transition:opacity 0.7s ease;
-}
+/* ─── Scenes ─── */
+.sc{position:absolute;inset:0;z-index:3;opacity:0;pointer-events:none}
 .sc.on{opacity:1;pointer-events:all}
 
 /* ─── Progress bar ─── */
-#prog{
-  position:absolute;bottom:0;left:0;height:3px;
-  background:linear-gradient(90deg,var(--blue),var(--cyan));
-  width:0%;z-index:99;transition:width linear;
-}
+#prog{position:absolute;bottom:0;left:0;height:2px;z-index:99;
+  background:linear-gradient(90deg,var(--a),var(--cy));width:0%}
 
-/* ─── SCENE 1: INTRO ─── */
+/* ═══════════════════════════════════
+   SCENE 1 — COLD OPEN
+═══════════════════════════════════ */
 #s1{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
+
+.char{display:block;will-change:transform}
+.eye-l,.eye-r{transform-box:fill-box;transform-origin:center;animation:blink 4.5s ease-in-out infinite}
+.eye-r{animation-delay:.1s}
+@keyframes blink{0%,82%,100%{transform:scaleY(1)}87%{transform:scaleY(.04)}}
+.char-hand-l,.char-hand-r{transform-box:fill-box;transform-origin:50% 80%}
+.char-hand-l{animation:waveL 2.2s ease-in-out infinite}
+.char-hand-r{animation:waveR 2.5s ease-in-out 0.3s infinite}
+@keyframes waveL{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+@keyframes waveR{0%,100%{transform:rotate(10deg)}50%{transform:rotate(-6deg)}}
+
 #s1 .char-wrap{
-  opacity:0;transform:translateY(-60px) scale(0.6);
-  transition:opacity 0.6s cubic-bezier(.34,1.56,.64,1),
-             transform 0.6s cubic-bezier(.34,1.56,.64,1);
+  opacity:0;transform:translateY(-80px) scale(0.5);
+  transition:opacity .55s cubic-bezier(.34,1.56,.64,1),
+             transform .55s cubic-bezier(.34,1.56,.64,1);
+  animation:none;
 }
 #s1 .char-wrap.in{opacity:1;transform:translateY(0) scale(1)}
-#s1 .char-wrap.float{animation:floatY 3s ease-in-out infinite}
-@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
-.eye-l,.eye-r{transform-origin:center;animation:blink 4s ease-in-out infinite}
-.eye-r{animation-delay:0.08s}
-@keyframes blink{0%,85%,100%{transform:scaleY(1)}90%{transform:scaleY(0.05)}}
+#s1 .char-wrap.float{animation:floatY 3.2s ease-in-out infinite}
+@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
 
-#s1 .title-wrap{margin-top:-8px;display:flex;flex-direction:column;align-items:center;gap:6px}
-#s1 .big-title{
-  font-size:52px;font-weight:800;letter-spacing:8px;
-  background:linear-gradient(135deg,#fff 30%,var(--blue));
+#s1 .title-group{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:4px}
+
+.line-reveal{overflow:hidden}
+.line-inner{
+  display:block;
+  transform:translateY(110%);
+  transition:transform 0.65s cubic-bezier(0.16,1,0.3,1);
+}
+.line-inner.in{transform:translateY(0)}
+
+#s1 .brand{
+  font-size:72px;font-weight:900;letter-spacing:14px;text-transform:uppercase;
+  background:linear-gradient(135deg,#fff 20%,rgba(91,91,214,0.8));
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  opacity:0;transform:translateY(20px);
-  transition:opacity 0.5s 0.5s ease,transform 0.5s 0.5s ease;
 }
-#s1 .big-title.in{opacity:1;transform:translateY(0)}
-#s1 .sub{
-  font-size:15px;color:rgba(255,255,255,0.45);letter-spacing:3px;font-weight:400;
-  opacity:0;transition:opacity 0.5s 0.9s ease;
+#s1 .kw{
+  font-size:13px;font-weight:500;letter-spacing:5px;color:var(--t2);
+  text-transform:uppercase;
 }
-#s1 .sub.in{opacity:1}
-#s1 .glow-ring{
-  position:absolute;width:200px;height:200px;border-radius:50%;
-  background:radial-gradient(circle,rgba(107,126,212,0.25) 0%,transparent 70%);
-  animation:ringPulse 2.5s ease-in-out infinite;pointer-events:none;
-}
-@keyframes ringPulse{0%,100%{transform:scale(0.9);opacity:0.4}50%{transform:scale(1.2);opacity:0.8}}
 
-/* ─── SCENE 2: PROBLEM ─── */
-#s2{display:flex;align-items:center;justify-content:center;gap:60px}
-#s2 .person{display:flex;flex-direction:column;align-items:center;gap:10px}
-#s2 .avatar{width:64px;height:64px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);
-  display:flex;align-items:center;justify-content:center;font-size:28px}
-#s2 .speech{
-  background:var(--card);border:1px solid var(--border);border-radius:12px;
-  padding:8px 14px;font-size:13px;color:rgba(255,255,255,0.5);
-  opacity:0;transform:translateY(8px);
-  transition:opacity 0.4s ease,transform 0.4s ease;
+/* accent line */
+#s1 .accent-line{
+  width:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--a),transparent);
+  margin:10px 0;
+  transition:width 0.8s 0.9s cubic-bezier(.16,1,.3,1);
 }
-#s2 .speech.in{opacity:1;transform:translateY(0)}
-#s2 .barrier{
-  display:flex;flex-direction:column;align-items:center;gap:8px;
-}
-#s2 .wall{
-  width:4px;height:120px;
-  background:linear-gradient(180deg,transparent,rgba(255,60,60,0.6),transparent);
-  position:relative;
-}
-#s2 .wall::before{
-  content:'';position:absolute;left:-1px;top:0;bottom:0;width:6px;
-  background:rgba(255,60,60,0.15);filter:blur(6px);
-}
-#s2 .q-marks{font-size:24px;opacity:0.4;letter-spacing:4px;animation:qBounce 1.5s ease-in-out infinite}
-@keyframes qBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
-#s2 .p-text{
-  position:absolute;bottom:80px;left:0;right:0;text-align:center;
-  font-size:22px;font-weight:700;opacity:0;transform:translateY(10px);
-  transition:opacity 0.5s 0.4s ease,transform 0.5s 0.4s ease;
-}
-#s2 .p-text.in{opacity:1;transform:translateY(0)}
-#s2 .p-sub{
-  position:absolute;bottom:52px;left:0;right:0;text-align:center;
-  font-size:13px;color:rgba(255,255,255,0.4);opacity:0;
-  transition:opacity 0.5s 0.8s ease;
-}
-#s2 .p-sub.in{opacity:1}
+#s1 .accent-line.in{width:200px}
 
-/* ─── SCENE 3: APP DEMO ─── */
-#s3{flex-direction:column}
-#s3 .app-shell{
-  width:880px;height:480px;
-  background:#0a0e1a;border-radius:10px;
-  border:1px solid var(--border);overflow:hidden;
-  display:flex;flex-direction:column;
-  opacity:0;transform:scale(0.95);
-  transition:opacity 0.5s ease,transform 0.5s ease;
+/* ═══════════════════════════════════
+   SCENE 2 — STAT IMPACT
+═══════════════════════════════════ */
+#s2{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:0 60px}
+
+#s2 .pre-text{
+  font-size:16px;font-weight:500;letter-spacing:3px;color:var(--t2);
+  text-transform:uppercase;margin-bottom:14px;
 }
-#s3 .app-shell.in{opacity:1;transform:scale(1)}
-/* App header */
+#s2 .big-stat{
+  font-size:110px;font-weight:900;letter-spacing:-4px;line-height:1;
+  background:linear-gradient(135deg,#fff,var(--rd));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+#s2 .stat-unit{font-size:40px;font-weight:900;letter-spacing:-1px;
+  -webkit-text-fill-color:rgba(255,255,255,0.7)}
+#s2 .post-text{
+  margin-top:16px;font-size:22px;font-weight:700;color:rgba(255,255,255,0.85);
+  text-align:center;line-height:1.4;
+}
+#s2 .post-sub{
+  margin-top:10px;font-size:14px;color:var(--t2);text-align:center;line-height:1.6;
+}
+
+/* reveal variants */
+.fade-up{
+  opacity:0;transform:translateY(24px);
+  transition:opacity 0.6s ease,transform 0.6s cubic-bezier(.16,1,.3,1);
+}
+.fade-up.in{opacity:1;transform:translateY(0)}
+.fade-in{opacity:0;transition:opacity 0.6s ease}
+.fade-in.in{opacity:1}
+
+/* dot grid accent */
+#s2 .dot-grid{
+  position:absolute;right:60px;top:50%;transform:translateY(-50%);
+  display:grid;grid-template-columns:repeat(8,16px);gap:8px;
+  opacity:0;transition:opacity 0.8s .4s ease;
+}
+#s2 .dot-grid.in{opacity:1}
+#s2 .dot-grid span{
+  width:6px;height:6px;border-radius:50%;background:rgba(244,63,94,0.3);
+  display:block;
+}
+#s2 .dot-grid span.hi{background:var(--rd)}
+
+/* ═══════════════════════════════════
+   SCENE 3 — APP DEMO
+═══════════════════════════════════ */
+#s3{display:flex;align-items:center;justify-content:center}
+.app-frame{
+  width:900px;height:504px;
+  background:#0a0b14;border-radius:12px;
+  border:1px solid var(--br);
+  display:flex;flex-direction:column;overflow:hidden;
+  opacity:0;transform:scale(0.96) translateY(12px);
+  transition:opacity .5s ease,transform .5s cubic-bezier(.16,1,.3,1);
+  box-shadow:0 0 0 1px rgba(255,255,255,0.04),0 32px 64px rgba(0,0,0,0.6);
+}
+.app-frame.in{opacity:1;transform:scale(1) translateY(0)}
+
+/* — App header — */
 .app-hdr{
-  height:44px;background:rgba(0,0,0,0.5);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;padding:0 16px;
-  flex-shrink:0;
+  height:42px;background:rgba(0,0,0,0.45);
+  border-bottom:1px solid var(--br);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;flex-shrink:0;
 }
-.app-hdr .logo-row{display:flex;align-items:center;gap:8px}
-.app-hdr .logo-img{width:28px;height:28px;border-radius:6px}
-.app-hdr .logo-name{font-size:14px;font-weight:700;color:rgba(255,255,255,0.9)}
-.app-hdr .mode-toggle{
-  display:flex;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;gap:2px;
+.hdr-left{display:flex;align-items:center;gap:8px}
+.app-logo-img{width:26px;height:26px;border-radius:6px;object-fit:cover}
+.app-brand{font-size:13px;font-weight:700;letter-spacing:.5px}
+.hdr-tabs{display:flex;background:rgba(255,255,255,0.05);border-radius:7px;padding:3px;gap:2px}
+.htab{padding:4px 11px;border-radius:5px;font-size:11px;font-weight:500;color:var(--t2);cursor:default}
+.htab.act{background:var(--a2);color:#fff;font-weight:600}
+.hdr-btn{
+  background:rgba(91,91,214,0.18);border:1px solid rgba(91,91,214,0.3);
+  color:rgba(255,255,255,0.75);border-radius:7px;
+  padding:5px 12px;font-size:11px;font-weight:600;cursor:default
 }
-.mode-btn{
-  padding:4px 10px;border-radius:6px;font-size:12px;color:rgba(255,255,255,0.4);
-  cursor:default;transition:all 0.3s;
-}
-.mode-btn.act{background:#7C3AED;color:white}
-.app-hdr .learn-btn{
-  background:#7C3AED;color:white;border:none;border-radius:6px;
-  padding:5px 12px;font-size:12px;font-weight:600;
-}
-/* App body */
+
+/* — App body — */
 .app-body{display:flex;flex:1;overflow:hidden}
+
 /* Camera panel */
 .cam-panel{
-  width:52%;border-right:1px solid var(--border);
-  position:relative;background:#080c14;overflow:hidden;
+  width:50%;border-right:1px solid var(--br);
+  position:relative;background:#06070C;overflow:hidden;
 }
-.cam-canvas-wrap{width:100%;height:100%;position:relative}
-#camCanvas{width:100%;height:100%}
-.fps-badge{
-  position:absolute;top:8px;left:8px;
-  background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.1);
-  border-radius:20px;padding:3px 10px;font-size:11px;
-  display:flex;align-items:center;gap:5px;
+#camCvs{position:absolute;inset:0;width:100%;height:100%}
+
+/* HUD overlays */
+.cam-hud{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none}
+.hud-corner{position:absolute;width:18px;height:18px}
+.hud-corner svg{width:100%;height:100%}
+.hud-corner.tl{top:10px;left:10px}
+.hud-corner.tr{top:10px;right:10px;transform:scaleX(-1)}
+.hud-corner.bl{bottom:10px;left:10px;transform:scaleY(-1)}
+.hud-corner.br{bottom:10px;right:10px;transform:scale(-1,-1)}
+.live-badge{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:20px;padding:4px 12px;
+  display:flex;align-items:center;gap:6px;
+  font-size:11px;color:rgba(255,255,255,0.8);font-weight:500;
 }
-.fps-dot{width:6px;height:6px;border-radius:50%;background:#ef4444;animation:pulse 1s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-.fps-badge span{color:rgba(255,255,255,0.7)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;
+  animation:livePulse 1s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
+
 /* Right panel */
-.right-panel{flex:1;display:flex;flex-direction:column;padding:10px;gap:8px;overflow:hidden}
-/* Sentence card */
-.sent-card{
-  background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;
-}
-.sent-card .card-hdr{font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;
-  letter-spacing:1px;margin-bottom:8px;display:flex;align-items:center;gap:5px}
-.sent-card .words{display:flex;flex-wrap:wrap;gap:5px;min-height:28px}
-.word-pill{
-  background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);
-  border-radius:20px;padding:3px 10px;font-size:12px;color:rgba(255,255,255,0.8);
-  opacity:0;transform:scale(0.7);
-  transition:opacity 0.3s ease,transform 0.3s cubic-bezier(.34,1.56,.64,1);
-}
-.word-pill.in{opacity:1;transform:scale(1)}
-.ai-sentence{
-  margin-top:8px;padding:8px 10px;border-radius:8px;
-  background:linear-gradient(135deg,rgba(107,126,212,0.12),rgba(34,211,238,0.08));
-  border:1px solid rgba(107,126,212,0.25);
-  font-size:14px;font-weight:600;color:white;min-height:32px;
-  opacity:0;transition:opacity 0.4s ease;
-}
-.ai-sentence.in{opacity:1}
-.ai-badge{font-size:9px;color:var(--cyan);text-transform:uppercase;
-  letter-spacing:1px;margin-bottom:3px;display:flex;align-items:center;gap:3px}
+.right-panel{flex:1;display:flex;flex-direction:column;gap:0;overflow:hidden}
 
-/* Recognition card */
-.rec-card{
-  background:var(--card);border:1px solid var(--border);border-radius:10px;
-  padding:10px 12px;flex:1;
-}
-.rec-card .card-hdr{font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;
-  letter-spacing:1px;margin-bottom:8px;display:flex;align-items:center;gap:5px}
-.detect-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
-.rec-result{
-  padding:10px;border-radius:8px;background:rgba(0,0,0,0.3);
-  border:1px solid rgba(255,255,255,0.06);
-}
-.rec-word{font-size:36px;font-weight:900;letter-spacing:-1px;color:white;margin-bottom:8px}
-.conf-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-.conf-label{font-size:10px;color:rgba(255,255,255,0.35)}
-.conf-val{font-size:13px;font-weight:700;font-family:monospace;color:var(--green)}
-.conf-bar-bg{height:6px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
-.conf-bar-fill{
-  height:100%;border-radius:4px;width:0%;
-  background:linear-gradient(90deg,var(--blue),var(--cyan));
-  transition:width 1.5s cubic-bezier(.22,1,.36,1);
-}
-.cands{margin-top:8px;display:flex;flex-direction:column;gap:4px}
-.cand{display:flex;align-items:center;justify-content:space-between;
-  font-size:11px;color:rgba(255,255,255,0.3)}
-.cand-bar{width:40px;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden}
-.cand-fill{height:100%;background:rgba(255,255,255,0.15);border-radius:2px}
+/* Sentence section */
+.r-section{padding:10px 12px;border-bottom:1px solid var(--br)}
+.r-label{font-size:10px;font-weight:600;letter-spacing:2px;
+  color:var(--t3);text-transform:uppercase;margin-bottom:8px;
+  display:flex;align-items:center;gap:6px}
+.r-label-dot{width:5px;height:5px;border-radius:50%;background:var(--gr);
+  animation:livePulse 1.4s ease-in-out infinite}
 
-/* Buffer bar */
-.buf-row{margin-top:auto;padding-top:8px}
-.buf-label{font-size:9px;color:rgba(255,255,255,0.2);margin-bottom:3px;
-  display:flex;justify-content:space-between}
-.buf-bg{height:2px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden}
-.buf-fill{height:100%;background:rgba(139,92,246,0.4);border-radius:2px;
-  animation:bufAnim 2s linear infinite}
-@keyframes bufAnim{0%{width:20%}50%{width:75%}100%{width:45%}}
+/* Word pills */
+.pill-row{display:flex;flex-wrap:wrap;gap:5px;min-height:26px}
+.pill{
+  padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;
+  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+  color:rgba(255,255,255,0.85);
+  opacity:0;transform:scale(0.6) translateY(6px);
+  transition:opacity .3s ease,transform .3s cubic-bezier(.34,1.56,.64,1);
+}
+.pill.in{opacity:1;transform:scale(1) translateY(0)}
 
-/* ─── SCENE 4: HOW IT WORKS ─── */
-#s4{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px}
-#s4 .how-title{
-  font-size:28px;font-weight:800;text-align:center;
-  opacity:0;transform:translateY(-15px);
-  transition:opacity 0.5s ease,transform 0.5s ease;
+/* AI sentence */
+.ai-box{
+  margin-top:8px;padding:8px 10px;border-radius:9px;
+  background:linear-gradient(135deg,rgba(91,91,214,0.1),rgba(34,211,238,0.06));
+  border:1px solid rgba(91,91,214,0.2);min-height:38px;
+  opacity:0;transition:opacity .4s ease;
 }
-#s4 .how-title.in{opacity:1;transform:translateY(0)}
-#s4 .steps{display:flex;align-items:center;gap:0}
-.step{
-  display:flex;flex-direction:column;align-items:center;gap:12px;width:160px;
-  opacity:0;transform:translateY(20px);
-  transition:opacity 0.4s ease,transform 0.4s ease;
+.ai-box.in{opacity:1}
+.ai-label{font-size:9px;font-weight:700;letter-spacing:2px;
+  color:var(--cy);text-transform:uppercase;margin-bottom:4px}
+.ai-text{font-size:13px;font-weight:600;color:#fff;line-height:1.5}
+.cursor{display:inline-block;width:2px;height:13px;background:var(--cy);
+  vertical-align:middle;margin-left:2px;animation:cur .7s step-end infinite}
+@keyframes cur{0%,100%{opacity:1}50%{opacity:0}}
+
+/* Recognition section */
+.rec-section{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.rec-main{
+  background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.05);
+  border-radius:10px;padding:10px 12px;flex:1;
 }
-.step.in{opacity:1;transform:translateY(0)}
-.step-icon{
-  width:72px;height:72px;border-radius:16px;
-  border:1px solid var(--border);background:var(--card);
-  display:flex;align-items:center;justify-content:center;font-size:28px;
-  position:relative;overflow:hidden;
+.rec-sign-name{font-size:32px;font-weight:900;letter-spacing:-1px;color:#fff;
+  margin-bottom:4px;min-height:38px;line-height:1.1}
+.rec-sign-name.match{color:#fff}
+.conf-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.conf-label{font-size:10px;color:var(--t3)}
+.conf-pct{font-size:13px;font-weight:800;font-family:monospace;
+  color:var(--gr);letter-spacing:1px}
+.conf-track{height:5px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden}
+.conf-fill{height:100%;width:0%;border-radius:3px;
+  background:linear-gradient(90deg,var(--a),var(--cy));
+  transition:width 1.2s cubic-bezier(.22,1,.36,1)}
+
+/* Candidates */
+.cand-list{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.cand-row{display:flex;align-items:center;gap:8px;font-size:11px}
+.cand-name{color:var(--t2);width:60px;font-weight:500}
+.cand-track{flex:1;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden}
+.cand-bar{height:100%;background:rgba(255,255,255,0.15);border-radius:2px;
+  transition:width .8s cubic-bezier(.22,1,.36,1)}
+.cand-pct{color:var(--t3);font-size:10px;font-family:monospace;width:28px;text-align:right}
+
+/* Buffer */
+.buf-row{margin-top:6px;display:flex;flex-direction:column;gap:3px}
+.buf-hdr{display:flex;justify-content:space-between;
+  font-size:9px;color:var(--t3);font-family:monospace}
+.buf-track{height:2px;background:rgba(255,255,255,0.04);border-radius:2px;overflow:hidden}
+.buf-fill{height:100%;background:rgba(124,58,237,0.5);border-radius:2px;
+  animation:bufAnim 2.3s ease-in-out infinite}
+@keyframes bufAnim{0%{width:15%}40%{width:72%}70%{width:55%}100%{width:30%}}
+
+/* ═══════════════════════════════════
+   SCENE 4 — PIPELINE
+═══════════════════════════════════ */
+#s4{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px}
+#s4 .pipe-title{
+  font-size:32px;font-weight:800;
 }
-.step-icon::after{
+#s4 .pipeline{display:flex;align-items:center;gap:0;position:relative}
+
+.pnode{
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  width:140px;
+  opacity:0;transform:translateY(16px);
+  transition:opacity .4s ease,transform .4s cubic-bezier(.16,1,.3,1);
+}
+.pnode.in{opacity:1;transform:translateY(0)}
+.pnode-icon{
+  width:64px;height:64px;border-radius:16px;
+  border:1px solid var(--br);background:rgba(255,255,255,0.03);
+  display:flex;align-items:center;justify-content:center;
+  font-size:26px;position:relative;overflow:hidden;
+}
+.pnode-icon::after{
   content:'';position:absolute;inset:0;
-  background:radial-gradient(circle at 50% 50%,rgba(107,126,212,0.2),transparent);
-  opacity:0;animation:stepGlow 2s ease-in-out infinite;
+  background:radial-gradient(circle at 50% 30%,rgba(91,91,214,0.18),transparent 70%);
 }
-@keyframes stepGlow{0%,100%{opacity:0}50%{opacity:1}}
-.step-label{font-size:13px;font-weight:700;text-align:center;color:rgba(255,255,255,0.9)}
-.step-desc{font-size:10px;color:rgba(255,255,255,0.35);text-align:center;line-height:1.5}
-.step-arrow{font-size:20px;color:rgba(107,126,212,0.4);margin:0 -8px;margin-bottom:24px;flex-shrink:0}
-.tech-tag{
-  display:inline-block;margin-top:4px;padding:2px 7px;
-  background:rgba(107,126,212,0.15);border:1px solid rgba(107,126,212,0.3);
-  border-radius:20px;font-size:9px;color:var(--blue);font-family:monospace;
+.pnode-name{font-size:13px;font-weight:700;text-align:center;color:rgba(255,255,255,0.9)}
+.pnode-sub{font-size:10px;color:var(--t2);text-align:center;line-height:1.5}
+.pnode-tag{
+  margin-top:2px;padding:2px 8px;border-radius:20px;font-size:9px;
+  font-family:monospace;letter-spacing:.5px;
+  background:rgba(91,91,214,0.12);border:1px solid rgba(91,91,214,0.25);
+  color:rgba(150,150,255,0.8)
 }
 
-/* ─── SCENE 5: FEATURES ─── */
-#s5{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px}
-#s5 .feat-title{
-  font-size:28px;font-weight:800;
-  opacity:0;transition:opacity 0.5s ease;
+.parrow{
+  width:48px;flex-shrink:0;margin-bottom:24px;
+  opacity:0;transition:opacity .3s ease;
 }
-#s5 .feat-title.in{opacity:1}
-#s5 .cards{display:flex;gap:16px}
-.feat-card{
-  width:256px;padding:24px;border-radius:16px;
-  background:var(--card);border:1px solid var(--border);
+.parrow.in{opacity:1}
+.parrow svg{width:48px;height:12px;overflow:visible}
+
+/* ═══════════════════════════════════
+   SCENE 5 — THREE PILLARS
+═══════════════════════════════════ */
+#s5{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:44px}
+#s5 .pillar-title{font-size:34px;font-weight:800}
+#s5 .pillars{display:flex;gap:1px}
+
+.pillar{
+  width:310px;padding:30px 28px;
   display:flex;flex-direction:column;gap:12px;
-  opacity:0;transform:translateY(30px);
-  transition:opacity 0.5s ease,transform 0.5s cubic-bezier(.34,1.2,.64,1);
+  border:1px solid var(--br);border-radius:16px;
+  background:rgba(255,255,255,0.025);
+  opacity:0;transform:translateY(28px);
+  transition:opacity .5s ease,transform .5s cubic-bezier(.16,1,.3,1);
 }
-.feat-card.in{opacity:1;transform:translateY(0)}
-.feat-icon{font-size:32px;width:56px;height:56px;border-radius:12px;
-  background:rgba(107,126,212,0.1);border:1px solid rgba(107,126,212,0.2);
-  display:flex;align-items:center;justify-content:center}
-.feat-name{font-size:16px;font-weight:700}
-.feat-desc{font-size:12px;color:rgba(255,255,255,0.45);line-height:1.6}
-.feat-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
-.ftag{
-  padding:2px 8px;border-radius:20px;font-size:10px;font-family:monospace;
-  background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);color:var(--cyan);
-}
-
-/* ─── SCENE 6: CTA ─── */
-#s6{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
-#s6 .cta-char{
-  opacity:0;transform:scale(0.7);
-  transition:opacity 0.5s cubic-bezier(.34,1.4,.64,1),
-             transform 0.5s cubic-bezier(.34,1.4,.64,1);
-}
-#s6 .cta-char.in{opacity:1;transform:scale(1)}
-#s6 .cta-char.float{animation:floatY 3s ease-in-out infinite}
-#s6 .cta-tagline{
-  font-size:32px;font-weight:900;letter-spacing:2px;margin-top:8px;
-  background:linear-gradient(135deg,white 40%,var(--blue));
+.pillar.in{opacity:1;transform:translateY(0)}
+.pillar-num{
+  font-size:52px;font-weight:900;letter-spacing:-2px;line-height:1;
+  background:linear-gradient(135deg,#fff,rgba(91,91,214,0.7));
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  opacity:0;transform:translateY(12px);
-  transition:opacity 0.5s 0.4s ease,transform 0.5s 0.4s ease;
 }
-#s6 .cta-tagline.in{opacity:1;transform:translateY(0)}
+.pillar-name{font-size:16px;font-weight:700;color:#fff}
+.pillar-desc{font-size:13px;color:var(--t2);line-height:1.6}
+.pillar-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.ptag{padding:2px 8px;border-radius:20px;font-size:10px;
+  background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.18);
+  color:rgba(34,211,238,0.75)}
+
+/* ═══════════════════════════════════
+   SCENE 6 — CTA
+═══════════════════════════════════ */
+#s6{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
+#s6 .glow-orb{
+  position:absolute;width:400px;height:400px;border-radius:50%;
+  background:radial-gradient(circle,rgba(91,91,214,0.18) 0%,transparent 70%);
+  animation:orbPulse 3s ease-in-out infinite;pointer-events:none;
+}
+@keyframes orbPulse{0%,100%{transform:scale(.85);opacity:.6}50%{transform:scale(1.1);opacity:1}}
+
+#s6 .cta-char{
+  opacity:0;transform:scale(0.6) translateY(20px);
+  transition:opacity .5s cubic-bezier(.34,1.4,.64,1),
+             transform .5s cubic-bezier(.34,1.4,.64,1);
+}
+#s6 .cta-char.in{opacity:1;transform:scale(1) translateY(0)}
+#s6 .cta-char.float{animation:floatY 3.2s ease-in-out infinite}
+
+#s6 .cta-line1{
+  font-size:42px;font-weight:900;letter-spacing:-1px;text-align:center;margin-top:12px;
+  background:linear-gradient(135deg,#fff 40%,rgba(91,91,214,0.8));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
 #s6 .cta-url{
-  margin-top:10px;font-size:14px;font-family:monospace;
-  color:rgba(255,255,255,0.35);letter-spacing:1px;
-  opacity:0;transition:opacity 0.5s 0.8s ease;
+  margin-top:12px;font-size:13px;font-family:monospace;letter-spacing:2px;
+  color:var(--t2);
 }
-#s6 .cta-url.in{opacity:1}
 #s6 .cta-btn{
-  margin-top:20px;padding:12px 32px;
-  background:linear-gradient(135deg,var(--blue),var(--violet));
-  border:none;border-radius:12px;color:white;
-  font-size:15px;font-weight:700;letter-spacing:1px;cursor:pointer;
-  opacity:0;transform:translateY(10px);
-  transition:opacity 0.5s 1.1s ease,transform 0.5s 1.1s ease;
-  box-shadow:0 8px 30px rgba(107,126,212,0.4);
-  animation:btnGlow 2.5s ease-in-out infinite;
+  margin-top:22px;padding:13px 36px;border-radius:12px;
+  background:linear-gradient(135deg,var(--a),var(--a2));
+  color:#fff;font-size:15px;font-weight:700;letter-spacing:.5px;cursor:pointer;
+  border:none;box-shadow:0 8px 32px rgba(91,91,214,0.45);
+  animation:btnBreath 2.5s ease-in-out infinite;
+  text-decoration:none;display:inline-block;
 }
-#s6 .cta-btn.in{opacity:1;transform:translateY(0)}
-@keyframes btnGlow{
-  0%,100%{box-shadow:0 8px 30px rgba(107,126,212,0.4)}
-  50%{box-shadow:0 8px 40px rgba(107,126,212,0.7)}
-}
-#s6 .cta-glow{
-  position:absolute;width:300px;height:300px;pointer-events:none;
-  background:radial-gradient(circle,rgba(107,126,212,0.2) 0%,transparent 70%);
-  animation:ringPulse 2.5s ease-in-out infinite;
+@keyframes btnBreath{
+  0%,100%{box-shadow:0 8px 32px rgba(91,91,214,0.45)}
+  50%{box-shadow:0 12px 48px rgba(91,91,214,0.7)}
 }
 
-/* ─── Haruki SVG char ─── */
-.haruki-svg{display:block}
+/* scene transitions */
+.sc{transition:opacity .5s ease}
 </style>
 </head>
 <body>
-
 <div id="stage">
-  <canvas id="bgc"></canvas>
+  <canvas id="bgCvs"></canvas>
+  <canvas id="fxCvs"></canvas>
 
-  <!-- ══ SCENE 1: INTRO ══ -->
+  <!-- ══════════════════════════════
+       SCENE 1 — INTRO
+  ══════════════════════════════ -->
   <div class="sc" id="s1">
-    <div id="s1-glow-ring" class="glow-ring"></div>
-    <div class="char-wrap" id="char1">
-      <svg class="haruki-svg" width="160" height="180" viewBox="0 0 200 220" fill="none">
-        <circle cx="78" cy="46" r="18" fill="#6B7ED4"/>
-        <circle cx="100" cy="36" r="22" fill="#6B7ED4"/>
-        <circle cx="122" cy="46" r="18" fill="#6B7ED4"/>
-        <rect x="14" y="52" width="172" height="130" rx="65" fill="#6B7ED4"/>
-        <rect x="30" y="68" width="140" height="98" rx="49" fill="#1A1A1C"/>
-        <ellipse class="eye-l" cx="75" cy="108" rx="16" ry="21" fill="white" style="transform-origin:75px 108px"/>
-        <ellipse class="eye-r" cx="125" cy="108" rx="16" ry="21" fill="white" style="transform-origin:125px 108px"/>
-        <path d="M83 130 L100 145 L117 130" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      </svg>
-    </div>
-    <div class="title-wrap">
-      <div class="big-title" id="t1-title">HARUKI</div>
-      <div class="sub" id="t1-sub">A I &nbsp; 수 화 &nbsp; 번 역 기</div>
-    </div>
-  </div>
-
-  <!-- ══ SCENE 2: PROBLEM ══ -->
-  <div class="sc" id="s2">
-    <div class="person">
-      <div class="avatar">🧑</div>
-      <div class="speech" id="sp1">안녕하세요!</div>
-    </div>
-    <div class="barrier">
-      <div class="q-marks">???</div>
-      <div class="wall"></div>
-      <div class="q-marks">???</div>
-    </div>
-    <div class="person">
-      <div class="avatar" style="border-color:rgba(107,126,212,0.4)">🧏</div>
-      <div class="speech" id="sp2" style="border-color:rgba(107,126,212,0.3)">
-        <span style="color:var(--blue)">👋</span> (수화)
+    <div id="s1" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0">
+      <div class="char-wrap" id="char1">
+        <!-- Improved Haruki character with hands -->
+        <svg class="char" width="180" height="200" viewBox="0 0 180 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Body glow -->
+          <ellipse cx="90" cy="130" rx="65" ry="55" fill="rgba(91,91,214,0.15)"/>
+          <!-- Head bumps -->
+          <circle cx="66" cy="48" r="20" fill="#5B5BD6"/>
+          <circle cx="90" cy="36" r="24" fill="#5B5BD6"/>
+          <circle cx="114" cy="48" r="20" fill="#5B5BD6"/>
+          <!-- Body -->
+          <rect x="18" y="54" width="144" height="116" rx="56" fill="#5B5BD6"/>
+          <!-- Face -->
+          <rect x="32" y="68" width="116" height="86" rx="42" fill="#12131F"/>
+          <!-- Eyes -->
+          <ellipse class="eye-l" cx="68" cy="104" rx="15" ry="20" fill="white"/>
+          <ellipse class="eye-r" cx="112" cy="104" rx="15" ry="20" fill="white"/>
+          <!-- Pupils -->
+          <circle cx="71" cy="107" r="7" fill="#12131F"/>
+          <circle cx="115" cy="107" r="7" fill="#12131F"/>
+          <!-- Eye shine -->
+          <circle cx="74" cy="104" r="3" fill="white"/>
+          <circle cx="118" cy="104" r="3" fill="white"/>
+          <!-- Smile -->
+          <path d="M74 128 Q90 142 106 128" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"/>
+          <!-- Hands -->
+          <g class="char-hand-l">
+            <ellipse cx="20" cy="148" rx="14" ry="10" fill="#5B5BD6"/>
+          </g>
+          <g class="char-hand-r">
+            <ellipse cx="160" cy="148" rx="14" ry="10" fill="#5B5BD6"/>
+          </g>
+        </svg>
+      </div>
+      <div class="title-group">
+        <div class="accent-line" id="s1-line"></div>
+        <div class="line-reveal">
+          <span class="line-inner brand" id="s1-brand">HARUKI</span>
+        </div>
+        <div class="line-reveal" style="margin-top:4px">
+          <span class="line-inner kw" id="s1-kw">A I &nbsp;&nbsp; 한국 수화 번역기</span>
+        </div>
+        <div class="accent-line" id="s1-line2" style="margin-top:10px"></div>
       </div>
     </div>
-    <div class="p-text" id="p-text" style="color:rgba(255,255,255,0.85)">
-      수화를 모르면, 소통이 막힙니다
-    </div>
-    <div class="p-sub" id="p-sub">한국의 약 35만 명 청각 장애인과 일반인 사이의 언어 장벽</div>
   </div>
 
-  <!-- ══ SCENE 3: APP DEMO ══ -->
-  <div class="sc" id="s3" style="align-items:center;justify-content:center">
-    <div class="app-shell" id="app-shell">
+  <!-- ══════════════════════════════
+       SCENE 2 — STAT IMPACT
+  ══════════════════════════════ -->
+  <div class="sc" id="s2">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:0 80px">
+      <!-- Dot accent -->
+      <div class="dot-grid" id="dg">
+        <script>
+          for(let i=0;i<48;i++){
+            document.write('<span'+(i<6?' class="hi"':'')+'></span>');
+          }
+        </script>
+      </div>
+      <div class="pre-text fade-up" id="s2-pre" style="transition-delay:.1s">한국에서</div>
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <div class="big-stat" id="s2-num">0</div>
+        <div class="stat-unit fade-in" id="s2-unit" style="transition-delay:.3s">만 명</div>
+      </div>
+      <div class="post-text fade-up" id="s2-txt" style="transition-delay:.5s;max-width:480px">이 청각장애인으로 살아갑니다</div>
+      <div class="post-sub fade-up" id="s2-sub" style="transition-delay:.9s;max-width:520px">
+        하지만 수화를 이해할 수 있는 비장애인은<br>전체 인구의 <strong style="color:rgba(255,255,255,0.9)">0.1%</strong>에 불과합니다
+      </div>
+      <!-- Divider line -->
+      <div id="s2-divider" style="width:0;height:2px;background:var(--rd);margin-top:24px;opacity:0.7;transition:width .8s .6s cubic-bezier(.16,1,.3,1)"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════
+       SCENE 3 — APP DEMO
+  ══════════════════════════════ -->
+  <div class="sc" id="s3" style="display:flex;align-items:center;justify-content:center">
+    <div class="app-frame" id="appFrame">
       <!-- Header -->
       <div class="app-hdr">
-        <div class="logo-row">
-          <img src="/logo.png" class="logo-img" alt="Haruki"/>
-          <span class="logo-name">하루키</span>
+        <div class="hdr-left">
+          <img src="/logo.png" class="app-logo-img" alt="하루키" onerror="this.style.display='none'"/>
+          <span class="app-brand">하루키</span>
         </div>
-        <div class="mode-toggle">
-          <div class="mode-btn act">✋ 수화 모드</div>
-          <div class="mode-btn">🎤 음성 모드</div>
+        <div class="hdr-tabs">
+          <div class="htab act">✋ 수화 모드</div>
+          <div class="htab">🎤 음성 모드</div>
+          <div class="htab">📋 수화 목록</div>
         </div>
-        <button class="learn-btn">📖 수화 학습하기</button>
+        <div class="hdr-btn">+ 수화 학습하기</div>
       </div>
       <!-- Body -->
       <div class="app-body">
         <!-- Camera -->
         <div class="cam-panel">
-          <div class="cam-canvas-wrap">
-            <canvas id="camCanvas"></canvas>
-          </div>
-          <div class="fps-badge">
-            <div class="fps-dot"></div>
-            <span>실시간</span>
-            <span id="fps-num" style="font-family:monospace;color:white">30 FPS</span>
+          <canvas id="camCvs"></canvas>
+          <div class="cam-hud">
+            <div class="hud-corner tl">
+              <svg viewBox="0 0 18 18"><path d="M0 14 L0 0 L14 0" stroke="rgba(91,91,214,0.7)" stroke-width="2" fill="none"/></svg>
+            </div>
+            <div class="hud-corner tr">
+              <svg viewBox="0 0 18 18"><path d="M0 14 L0 0 L14 0" stroke="rgba(91,91,214,0.7)" stroke-width="2" fill="none"/></svg>
+            </div>
+            <div class="hud-corner bl">
+              <svg viewBox="0 0 18 18"><path d="M0 14 L0 0 L14 0" stroke="rgba(91,91,214,0.7)" stroke-width="2" fill="none"/></svg>
+            </div>
+            <div class="hud-corner br">
+              <svg viewBox="0 0 18 18"><path d="M0 14 L0 0 L14 0" stroke="rgba(91,91,214,0.7)" stroke-width="2" fill="none"/></svg>
+            </div>
+            <div class="live-badge">
+              <div class="live-dot"></div>
+              <span style="color:rgba(255,255,255,0.6)">LIVE</span>
+              <span style="font-family:monospace;color:#fff;font-size:11px" id="fps-val">30 FPS</span>
+            </div>
           </div>
         </div>
         <!-- Right panel -->
         <div class="right-panel">
-          <!-- Sentence card -->
-          <div class="sent-card">
-            <div class="card-hdr">✨ 인식된 문장</div>
-            <div class="words" id="word-pills"></div>
-            <div class="ai-sentence" id="ai-sent">
-              <div class="ai-badge">✦ AI 문장</div>
-              <span id="ai-text"></span>
+          <!-- Sentence section -->
+          <div class="r-section">
+            <div class="r-label">
+              <div class="r-label-dot"></div>
+              인식된 문장
+            </div>
+            <div class="pill-row" id="pills"></div>
+            <div class="ai-box" id="aiBox">
+              <div class="ai-label">✦ AI 자연어 변환</div>
+              <div class="ai-text"><span id="aiTxt"></span><span class="cursor" id="aiCur" style="display:none"></span></div>
             </div>
           </div>
-          <!-- Recognition card -->
-          <div class="rec-card">
-            <div class="card-hdr">
-              <div class="detect-dot"></div>실시간 인식
+          <!-- Recognition section -->
+          <div class="rec-section">
+            <div class="r-label" style="margin-bottom:0">
+              <div class="r-label-dot" style="background:var(--cy)"></div>
+              실시간 인식
             </div>
-            <div class="rec-result">
-              <div class="rec-word" id="rec-word">—</div>
-              <div class="conf-row">
-                <span class="conf-label">신뢰도</span>
-                <span class="conf-val" id="conf-val">0%</span>
+            <div class="rec-main">
+              <div class="rec-sign-name" id="recWord">—</div>
+              <div class="conf-header">
+                <span class="conf-label">신뢰도 (confidence)</span>
+                <span class="conf-pct" id="confPct">0.0%</span>
               </div>
-              <div class="conf-bar-bg">
-                <div class="conf-bar-fill" id="conf-fill"></div>
-              </div>
-              <div class="cands" id="cands"></div>
+              <div class="conf-track"><div class="conf-fill" id="confFill"></div></div>
+              <div class="cand-list" id="candList"></div>
             </div>
             <div class="buf-row">
-              <div class="buf-label"><span>버퍼</span><span id="buf-frames">0f</span></div>
-              <div class="buf-bg"><div class="buf-fill"></div></div>
+              <div class="buf-hdr">
+                <span>슬라이딩 버퍼 (2.5s)</span>
+                <span id="bufFrames">0f / 75f</span>
+              </div>
+              <div class="buf-track"><div class="buf-fill"></div></div>
             </div>
           </div>
         </div>
@@ -452,379 +555,578 @@ html,body{width:100%;height:100%;background:#000;overflow:hidden;
     </div>
   </div>
 
-  <!-- ══ SCENE 4: HOW IT WORKS ══ -->
+  <!-- ══════════════════════════════
+       SCENE 4 — PIPELINE
+  ══════════════════════════════ -->
   <div class="sc" id="s4">
-    <div class="how-title" id="how-title">어떻게 작동하나요?</div>
-    <div class="steps" id="steps">
-      <div class="step" id="step0">
-        <div class="step-icon">📷</div>
-        <div class="step-label">웹캠 캡처</div>
-        <div class="step-desc">MediaPipe Holistic<br>손·포즈·얼굴 감지</div>
-        <span class="tech-tag">30fps</span>
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px">
+      <div class="line-reveal">
+        <span class="line-inner" id="s4-title" style="font-size:30px;font-weight:800;display:block">어떻게 작동하나요?</span>
       </div>
-      <div class="step-arrow">→</div>
-      <div class="step" id="step1">
-        <div class="step-icon">📐</div>
-        <div class="step-label">특징 추출</div>
-        <div class="step-desc">33D 손 특징벡터<br>위치·크기 불변</div>
-        <span class="tech-tag">33D + 24D + 20D</span>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step" id="step2">
-        <div class="step-icon">🔍</div>
-        <div class="step-label">SDTW 매칭</div>
-        <div class="step-desc">시퀀스 내 최적<br>부분 구간 탐색</div>
-        <span class="tech-tag">SubsequenceDTW</span>
-      </div>
-      <div class="step-arrow">→</div>
-      <div class="step" id="step3">
-        <div class="step-icon">✨</div>
-        <div class="step-label">AI 문장 변환</div>
-        <div class="step-desc">단어 → 자연스러운<br>한국어 문장</div>
-        <span class="tech-tag">Qwen 2.5-7B</span>
+      <div class="pipeline">
+        <div class="pnode" id="pn0">
+          <div class="pnode-icon">📷</div>
+          <div class="pnode-name">웹캠 캡처</div>
+          <div class="pnode-sub">MediaPipe Holistic<br>손·포즈·얼굴 추적</div>
+          <span class="pnode-tag">30 FPS</span>
+        </div>
+        <div class="parrow" id="pa0">
+          <svg viewBox="0 0 48 12"><path d="M0 6 L40 6" stroke="rgba(91,91,214,0.5)" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M36 2 L44 6 L36 10" stroke="rgba(91,91,214,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="pnode" id="pn1">
+          <div class="pnode-icon">📐</div>
+          <div class="pnode-name">특징 추출</div>
+          <div class="pnode-sub">위치·크기 불변<br>33D 특징벡터</div>
+          <span class="pnode-tag">33D+24D+20D</span>
+        </div>
+        <div class="parrow" id="pa1">
+          <svg viewBox="0 0 48 12"><path d="M0 6 L40 6" stroke="rgba(91,91,214,0.5)" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M36 2 L44 6 L36 10" stroke="rgba(91,91,214,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="pnode" id="pn2">
+          <div class="pnode-icon">🔍</div>
+          <div class="pnode-name">SDTW 매칭</div>
+          <div class="pnode-sub">최적 부분구간<br>코사인 필터링</div>
+          <span class="pnode-tag">SubDTW</span>
+        </div>
+        <div class="parrow" id="pa2">
+          <svg viewBox="0 0 48 12"><path d="M0 6 L40 6" stroke="rgba(91,91,214,0.5)" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M36 2 L44 6 L36 10" stroke="rgba(91,91,214,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="pnode" id="pn3">
+          <div class="pnode-icon">✨</div>
+          <div class="pnode-name">AI 문장 변환</div>
+          <div class="pnode-sub">수화 단어 →<br>자연어 문장</div>
+          <span class="pnode-tag">Qwen 2.5-7B</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ══ SCENE 5: FEATURES ══ -->
+  <!-- ══════════════════════════════
+       SCENE 5 — THREE PILLARS
+  ══════════════════════════════ -->
   <div class="sc" id="s5">
-    <div class="feat-title" id="feat-title">하루키가 할 수 있는 것</div>
-    <div class="cards">
-      <div class="feat-card" id="fc0">
-        <div class="feat-icon">📷</div>
-        <div class="feat-name">실시간 수화 인식</div>
-        <div class="feat-desc">웹캠 하나로 즉시 수화를 인식합니다. 설치 없이 브라우저에서 바로 사용 가능합니다.</div>
-        <div class="feat-tags">
-          <span class="ftag">MediaPipe</span>
-          <span class="ftag">30fps</span>
-          <span class="ftag">SDTW</span>
-        </div>
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px">
+      <div class="line-reveal">
+        <span class="line-inner" id="s5-title" style="font-size:30px;font-weight:800;display:block">하루키가 할 수 있는 것</span>
       </div>
-      <div class="feat-card" id="fc1" style="transition-delay:0.15s">
-        <div class="feat-icon" style="background:rgba(139,92,246,0.1);border-color:rgba(139,92,246,0.2)">✋</div>
-        <div class="feat-name">직접 학습·추가</div>
-        <div class="feat-desc">수화를 직접 녹화해서 등록하세요. 5테이크, 자동 반전·속도 증강으로 정확도를 높입니다.</div>
-        <div class="feat-tags">
-          <span class="ftag" style="border-color:rgba(139,92,246,0.3);color:var(--violet)">5 Takes</span>
-          <span class="ftag" style="border-color:rgba(139,92,246,0.3);color:var(--violet)">Auto Augment</span>
+      <div class="pillars">
+        <div class="pillar" id="p0">
+          <div class="pillar-num">실시간</div>
+          <div class="pillar-name">즉각적인 수화 인식</div>
+          <div class="pillar-desc">웹캠 하나로 수화를 즉시 번역합니다. 설치 없이 브라우저에서 바로 사용할 수 있습니다.</div>
+          <div class="pillar-tags">
+            <span class="ptag">MediaPipe</span>
+            <span class="ptag">SDTW</span>
+            <span class="ptag">30fps</span>
+          </div>
         </div>
-      </div>
-      <div class="feat-card" id="fc2" style="transition-delay:0.3s">
-        <div class="feat-icon" style="background:rgba(34,211,238,0.08);border-color:rgba(34,211,238,0.2)">🔊</div>
-        <div class="feat-name">AI 문장 + 음성 출력</div>
-        <div class="feat-desc">인식된 단어를 Qwen 2.5-7B가 자연스러운 문장으로 변환하고, TTS로 읽어드립니다.</div>
-        <div class="feat-tags">
-          <span class="ftag" style="border-color:rgba(34,211,238,0.3);color:var(--cyan)">Qwen2.5-7B</span>
-          <span class="ftag" style="border-color:rgba(34,211,238,0.3);color:var(--cyan)">TTS 한국어</span>
+        <div class="pillar" id="p1" style="transition-delay:.12s;border-color:rgba(124,58,237,0.2)">
+          <div class="pillar-num" style="background:linear-gradient(135deg,#fff,rgba(124,58,237,0.7));-webkit-background-clip:text;-webkit-text-fill-color:transparent">직접 학습</div>
+          <div class="pillar-name">나만의 수화 등록</div>
+          <div class="pillar-desc">수화를 직접 녹화해서 추가하세요. 자동 반전·속도 증강으로 정확도를 높입니다.</div>
+          <div class="pillar-tags">
+            <span class="ptag" style="border-color:rgba(124,58,237,0.2);color:rgba(167,139,250,0.8)">5-Take 녹화</span>
+            <span class="ptag" style="border-color:rgba(124,58,237,0.2);color:rgba(167,139,250,0.8)">자동 증강</span>
+          </div>
+        </div>
+        <div class="pillar" id="p2" style="transition-delay:.24s;border-color:rgba(16,185,129,0.15)">
+          <div class="pillar-num" style="background:linear-gradient(135deg,#fff,rgba(16,185,129,0.7));-webkit-background-clip:text;-webkit-text-fill-color:transparent">AI 문장</div>
+          <div class="pillar-name">자연스러운 한국어 출력</div>
+          <div class="pillar-desc">인식된 단어를 Qwen 2.5-7B가 완전한 문장으로 변환하고 TTS로 음성 출력합니다.</div>
+          <div class="pillar-tags">
+            <span class="ptag" style="border-color:rgba(16,185,129,0.2);color:rgba(52,211,153,0.8)">Qwen2.5-7B</span>
+            <span class="ptag" style="border-color:rgba(16,185,129,0.2);color:rgba(52,211,153,0.8)">TTS 한국어</span>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ══ SCENE 6: CTA ══ -->
+  <!-- ══════════════════════════════
+       SCENE 6 — CTA
+  ══════════════════════════════ -->
   <div class="sc" id="s6">
-    <div class="cta-glow"></div>
-    <div class="cta-char" id="cta-char">
-      <svg class="haruki-svg" width="130" height="148" viewBox="0 0 200 220" fill="none">
-        <circle cx="78" cy="46" r="18" fill="#6B7ED4"/>
-        <circle cx="100" cy="36" r="22" fill="#6B7ED4"/>
-        <circle cx="122" cy="46" r="18" fill="#6B7ED4"/>
-        <rect x="14" y="52" width="172" height="130" rx="65" fill="#6B7ED4"/>
-        <rect x="30" y="68" width="140" height="98" rx="49" fill="#1A1A1C"/>
-        <ellipse class="eye-l" cx="75" cy="108" rx="16" ry="21" fill="white" style="transform-origin:75px 108px"/>
-        <ellipse class="eye-r" cx="125" cy="108" rx="16" ry="21" fill="white" style="transform-origin:125px 108px"/>
-        <path d="M83 130 L100 145 L117 130" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      </svg>
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0">
+      <div class="glow-orb"></div>
+      <div class="cta-char" id="ctaChar">
+        <svg class="char" width="148" height="164" viewBox="0 0 180 200" fill="none">
+          <ellipse cx="90" cy="130" rx="65" ry="55" fill="rgba(91,91,214,0.15)"/>
+          <circle cx="66" cy="48" r="20" fill="#5B5BD6"/>
+          <circle cx="90" cy="36" r="24" fill="#5B5BD6"/>
+          <circle cx="114" cy="48" r="20" fill="#5B5BD6"/>
+          <rect x="18" y="54" width="144" height="116" rx="56" fill="#5B5BD6"/>
+          <rect x="32" y="68" width="116" height="86" rx="42" fill="#12131F"/>
+          <ellipse class="eye-l" cx="68" cy="104" rx="15" ry="20" fill="white"/>
+          <ellipse class="eye-r" cx="112" cy="104" rx="15" ry="20" fill="white"/>
+          <circle cx="71" cy="107" r="7" fill="#12131F"/>
+          <circle cx="115" cy="107" r="7" fill="#12131F"/>
+          <circle cx="74" cy="104" r="3" fill="white"/>
+          <circle cx="118" cy="104" r="3" fill="white"/>
+          <path d="M74 128 Q90 142 106 128" stroke="white" stroke-width="4" stroke-linecap="round" fill="none"/>
+          <g class="char-hand-l"><ellipse cx="20" cy="148" rx="14" ry="10" fill="#5B5BD6"/></g>
+          <g class="char-hand-r"><ellipse cx="160" cy="148" rx="14" ry="10" fill="#5B5BD6"/></g>
+        </svg>
+      </div>
+      <div class="cta-line1 fade-up" id="cta1" style="transition-delay:.3s">손짓이 언어가 됩니다</div>
+      <div class="cta-url fade-in" id="ctaUrl" style="transition-delay:.7s">haruki-lang.vercel.app</div>
+      <a href="/" class="cta-btn fade-up" id="ctaBtn" style="transition-delay:1.0s">지금 시작하기 →</a>
     </div>
-    <div class="cta-tagline" id="cta-tag">손짓이 언어가 됩니다</div>
-    <div class="cta-url" id="cta-url">haruki-lang.vercel.app</div>
-    <a href="/" class="cta-btn" id="cta-btn">지금 시작하기 →</a>
   </div>
 
-  <!-- Progress bar -->
   <div id="prog"></div>
 </div>
 
 <script>
-/* ─── Particles background ─── */
-const bgc = document.getElementById('bgc');
-bgc.width = 960; bgc.height = 540;
-const bctx = bgc.getContext('2d');
-const PTCLS = Array.from({length:60},()=>({
-  x:Math.random()*960, y:Math.random()*540,
-  vx:(Math.random()-0.5)*0.3, vy:(Math.random()-0.5)*0.3,
-  r:Math.random()*1.5+0.5, a:Math.random()
+/* ════════════════════════════════════════
+   BG CANVAS — animated gradient + grid
+════════════════════════════════════════ */
+const bgCvs = document.getElementById('bgCvs');
+bgCvs.width = 960; bgCvs.height = 540;
+const bg = bgCvs.getContext('2d');
+let bgT = 0;
+
+const PARTICLES = Array.from({length:50},()=>({
+  x: Math.random()*960, y: Math.random()*540,
+  vx: (Math.random()-.5)*.25, vy: (Math.random()-.5)*.25,
+  r: Math.random()*1.2+.4, a: Math.random()*.5+.1
 }));
-function drawBg(){
-  bctx.clearRect(0,0,960,540);
-  PTCLS.forEach(p=>{
+
+function renderBg(){
+  bgT += .005;
+  bg.clearRect(0,0,960,540);
+
+  // Radial glow
+  const orbX = 480 + Math.sin(bgT*.7)*120;
+  const orbY = 270 + Math.cos(bgT*.5)*80;
+  const grd = bg.createRadialGradient(orbX,orbY,0,orbX,orbY,360);
+  grd.addColorStop(0,'rgba(91,91,214,0.07)');
+  grd.addColorStop(1,'transparent');
+  bg.fillStyle = grd;
+  bg.fillRect(0,0,960,540);
+
+  // Grid
+  bg.strokeStyle = 'rgba(91,91,214,0.04)';
+  bg.lineWidth = 1;
+  for(let x=0;x<960;x+=60){bg.beginPath();bg.moveTo(x,0);bg.lineTo(x,540);bg.stroke()}
+  for(let y=0;y<540;y+=60){bg.beginPath();bg.moveTo(0,y);bg.lineTo(960,y);bg.stroke()}
+
+  // Particles
+  PARTICLES.forEach(p=>{
     p.x+=p.vx; p.y+=p.vy;
     if(p.x<0)p.x=960; if(p.x>960)p.x=0;
     if(p.y<0)p.y=540; if(p.y>540)p.y=0;
-    bctx.beginPath();
-    bctx.arc(p.x,p.y,p.r,0,Math.PI*2);
-    bctx.fillStyle=`rgba(107,126,212,${p.a*0.4})`;
-    bctx.fill();
+    bg.beginPath();bg.arc(p.x,p.y,p.r,0,Math.PI*2);
+    bg.fillStyle=`rgba(91,91,214,${p.a*0.35})`;
+    bg.fill();
   });
-  // subtle grid lines
-  bctx.strokeStyle='rgba(107,126,212,0.04)';
-  bctx.lineWidth=1;
-  for(let x=0;x<960;x+=80){bctx.beginPath();bctx.moveTo(x,0);bctx.lineTo(x,540);bctx.stroke()}
-  for(let y=0;y<540;y+=80){bctx.beginPath();bctx.moveTo(0,y);bctx.lineTo(960,y);bctx.stroke()}
-  requestAnimationFrame(drawBg);
+
+  requestAnimationFrame(renderBg);
 }
-drawBg();
+renderBg();
 
-/* ─── Skeleton canvas (Scene 3) ─── */
-const camCvs = document.getElementById('camCanvas');
-const camCtx = camCvs.getContext('2d');
-camCvs.width=460; camCvs.height=336;
+/* ════════════════════════════════════════
+   CAM CANVAS — Realistic MediaPipe skeleton
+════════════════════════════════════════ */
+const camCvs = document.getElementById('camCvs');
+const cam = camCvs.getContext('2d');
+let skT = 0, camRunning = false;
 
-// Skeleton keyframes: simplified pose + hand
-let skT = 0;
-function drawSkeleton(){
-  const w=camCvs.width, h=camCvs.height;
-  camCtx.clearRect(0,0,w,h);
-  // bg gradient
-  const grd=camCtx.createLinearGradient(0,0,0,h);
-  grd.addColorStop(0,'#0a0e1a'); grd.addColorStop(1,'#050810');
-  camCtx.fillStyle=grd; camCtx.fillRect(0,0,w,h);
+function initCam(){
+  camCvs.width = camCvs.parentElement.offsetWidth || 450;
+  camCvs.height = camCvs.parentElement.offsetHeight || 462;
+}
 
-  skT += 0.02;
-  const sway = Math.sin(skT)*0.04;
+// Signing gesture phases: each defines where the right wrist goes
+// and how the fingers extend (normalized 0-1)
+const GESTURES = [
+  // 안녕하세요: raise hand flat, wave side to side
+  { name:'안녕하세요', frames: 80, wristPath:(t)=>({
+    x: .65 + Math.sin(t*Math.PI*4)*.12,
+    y: .32 + Math.sin(t*Math.PI*2)*.04
+  }), fingers:(t)=>[1,1,1,1,1], phase:'wave' },
+  // 감사합니다: both hands come together, bow motion
+  { name:'감사합니다', frames: 70, wristPath:(t)=>({
+    x: .5 + Math.sin(t*Math.PI)*.08,
+    y: .35 + t*.08
+  }), fingers:(t)=>[1,1,1,1,1], phase:'bow' },
+  // 도움: one finger point
+  { name:'도움', frames: 60, wristPath:(t)=>({
+    x: .52,
+    y: .38 + Math.sin(t*Math.PI*2)*.05
+  }), fingers:(t)=>[0,.9+t*.1,0,0,0], phase:'point' },
+];
 
-  // Pose landmarks (simplified human figure, center at w/2, h*0.35)
-  const cx=w/2, cy=h*0.35;
-  const scale=h*0.55;
+let gestureIdx = 0, gestureFrame = 0;
+let recognitionEvents = []; // { time, word }
+let recognitionTimeout = null;
 
-  // Key pose points
-  const nose  ={x:cx+sway*scale*0.5, y:cy-scale*0.42};
-  const lsh   ={x:cx-scale*0.18+sway*scale*0.1, y:cy-scale*0.22};
-  const rsh   ={x:cx+scale*0.18+sway*scale*0.1, y:cy-scale*0.22};
-  const le    ={x:cx-scale*0.28+sway*scale*0.2, y:cy-scale*0.05};
-  const re    ={x:cx+scale*0.24+sway*scale*0.05, y:cy};
-  const lw    ={x:cx-scale*0.3+Math.sin(skT*1.3)*scale*0.08, y:cy+scale*0.1+Math.cos(skT)*scale*0.06};
-  const rw    ={x:cx+scale*0.22+Math.sin(skT*0.9+1)*scale*0.12, y:cy-scale*0.05+Math.cos(skT*1.1)*scale*0.08};
+function easeInOut(t){ return t<.5 ? 2*t*t : -1+(4-2*t)*t; }
 
-  // Draw connections
-  function line(a,b,col='rgba(107,126,212,0.6)',w=2){
-    camCtx.beginPath(); camCtx.moveTo(a.x,a.y); camCtx.lineTo(b.x,b.y);
-    camCtx.strokeStyle=col; camCtx.lineWidth=w; camCtx.stroke();
+function drawCam(){
+  if(!camRunning) return;
+  skT += .022;
+
+  const W = camCvs.width, H = camCvs.height;
+  cam.clearRect(0,0,W,H);
+
+  // Background
+  const bgGrd = cam.createLinearGradient(0,0,0,H);
+  bgGrd.addColorStop(0,'#09090F');
+  bgGrd.addColorStop(1,'#050509');
+  cam.fillStyle = bgGrd;
+  cam.fillRect(0,0,W,H);
+
+  // Vignette
+  const vig = cam.createRadialGradient(W/2,H/2,H*.3,W/2,H/2,H*.75);
+  vig.addColorStop(0,'transparent');
+  vig.addColorStop(1,'rgba(0,0,0,0.45)');
+  cam.fillStyle = vig;
+  cam.fillRect(0,0,W,H);
+
+  const g = GESTURES[gestureIdx];
+  const t = Math.min(1, gestureFrame / g.frames);
+  const wrist = g.wristPath(t);
+  const wx = wrist.x * W, wy = wrist.y * H;
+  const extArr = g.fingers(t);
+
+  // Pose skeleton — simplified human figure
+  const cx = W*.45, cy = H*.42, sc = H*.52;
+
+  const POSE = {
+    nose:  {x:cx+Math.sin(skT*.3)*.012*sc, y:cy-sc*.44},
+    neck:  {x:cx, y:cy-sc*.28},
+    lsh:   {x:cx-sc*.20, y:cy-sc*.24},
+    rsh:   {x:cx+sc*.16, y:cy-sc*.24},
+    lel:   {x:cx-sc*.30, y:cy-sc*.04},
+    rel:   {x:cx+sc*.24+Math.sin(skT*.8)*.02*sc, y:cy-sc*.06+Math.sin(skT*.6)*.02*sc},
+    lw:    {x:cx-sc*.28+Math.sin(skT*1.1)*.04*sc, y:cy+sc*.10+Math.cos(skT)*.04*sc},
+    rw:    {x:wx, y:wy},
+    lhip:  {x:cx-sc*.13, y:cy+sc*.16},
+    rhip:  {x:cx+sc*.13, y:cy+sc*.16},
+    lkn:   {x:cx-sc*.14, y:cy+sc*.40},
+    rkn:   {x:cx+sc*.14, y:cy+sc*.40},
+  };
+
+  function line(a,b,col,lw){
+    cam.beginPath();cam.moveTo(a.x,a.y);cam.lineTo(b.x,b.y);
+    cam.strokeStyle=col;cam.lineWidth=lw||2;cam.stroke();
   }
-  function dot(p,r=5,col='#6B7ED4'){
-    camCtx.beginPath(); camCtx.arc(p.x,p.y,r,0,Math.PI*2);
-    camCtx.fillStyle=col; camCtx.fill();
+  function dot(p,r,col){
+    cam.beginPath();cam.arc(p.x,p.y,r,0,Math.PI*2);
+    cam.fillStyle=col;cam.fill();
     // glow
-    camCtx.beginPath(); camCtx.arc(p.x,p.y,r*2.5,0,Math.PI*2);
-    const g=camCtx.createRadialGradient(p.x,p.y,0,p.x,p.y,r*2.5);
-    g.addColorStop(0,col.replace(')',',0.3)').replace('rgb','rgba')); g.addColorStop(1,'transparent');
-    camCtx.fillStyle=g; camCtx.fill();
+    const glow=cam.createRadialGradient(p.x,p.y,0,p.x,p.y,r*3.5);
+    glow.addColorStop(0,col.replace('rgb(','rgba(').replace(')',',.2)'));
+    glow.addColorStop(1,'transparent');
+    cam.fillStyle=glow;cam.fill();
   }
 
-  line(lsh,rsh); line(lsh,le); line(le,lw); line(rsh,re); line(re,rw);
-  line(lsh,{x:cx,y:cy+scale*0.1}); line(rsh,{x:cx,y:cy+scale*0.1});
-  line(nose,lsh,'rgba(107,126,212,0.3)'); line(nose,rsh,'rgba(107,126,212,0.3)');
+  // Skeleton connections
+  const POSE_COL = 'rgba(91,91,214,0.55)';
+  const BONE_W = 2;
+  line(POSE.nose,POSE.neck,POSE_COL,1.5);
+  line(POSE.neck,POSE.lsh,POSE_COL,BONE_W);
+  line(POSE.neck,POSE.rsh,POSE_COL,BONE_W);
+  line(POSE.lsh,POSE.lel,POSE_COL,BONE_W);
+  line(POSE.lel,POSE.lw,POSE_COL,BONE_W);
+  line(POSE.rsh,POSE.rel,POSE_COL,BONE_W);
+  line(POSE.rel,POSE.rw,POSE_COL,BONE_W);
+  line(POSE.lsh,POSE.lhip,POSE_COL,BONE_W);
+  line(POSE.rsh,POSE.rhip,POSE_COL,BONE_W);
+  line(POSE.lhip,POSE.rhip,POSE_COL,1.5);
+  line(POSE.lhip,POSE.lkn,POSE_COL,BONE_W);
+  line(POSE.rhip,POSE.rkn,POSE_COL,BONE_W);
 
-  // Hand landmarks on right wrist
-  const handPts=[];
-  const hscale=scale*0.18;
-  const fingers=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
-  // simple hand layout
-  const handBase=[
-    {x:0,y:0},
-    {x:-0.3,y:-0.3},{x:-0.25,y:-0.6},{x:-0.15,y:-0.85},{x:-0.05,y:-1.0},
-    {x:-0.1,y:-0.3},{x:-0.08,y:-0.65},{x:-0.05,y:-0.9},{x:0,y:-1.05},
-    {x:0.1,y:-0.28},{x:0.1,y:-0.62},{x:0.1,y:-0.87},{x:0.1,y:-1.02},
-    {x:0.25,y:-0.28},{x:0.26,y:-0.6},{x:0.25,y:-0.83},{x:0.24,y:-0.97},
-    {x:0.35,y:-0.2},{x:0.38,y:-0.48},{x:0.38,y:-0.68},{x:0.36,y:-0.84},
+  // Pose dots
+  Object.values(POSE).forEach(p=>dot(p,4,'#5B5BD6'));
+  dot(POSE.nose,5,'#9580FF');
+  dot(POSE.lw,5,'#5B5BD6');
+  dot(POSE.rw,6,'#22D3EE');
+
+  // HAND landmarks (21 points, simplified)
+  const hsc = sc * .22;
+  const fingers = [
+    [[.0,.0],[-.30,-.28],[-.25,-.55],[-.15,-.78],[-.06,-.95]], // thumb
+    [[.0,.0],[-.08,-.28],[-.06,-.60],[-.04,-.84],[-.01,-.99]],// index
+    [[.0,.0],[.10,-.28],[.10,-.61],[.10,-.85],[.10,-1.0]],    // middle
+    [[.0,.0],[.24,-.27],[.26,-.59],[.25,-.82],[.24,-.96]],    // ring
+    [[.0,.0],[.36,-.18],[.40,-.45],[.40,-.65],[.38,-.80]],    // pinky
   ];
-  const fingerSpread = Math.sin(skT*0.7)*0.15;
-  handBase.forEach((p,i)=>{
-    handPts.push({
-      x: rw.x + (p.x+fingerSpread*0.2)*hscale,
-      y: rw.y + p.y*hscale + Math.sin(skT*1.2+i*0.3)*2
+  const handPts = [];
+  const palmBases = [[0,0],[-.08,-.28],[.10,-.28],[.24,-.27],[.36,-.18]];
+  const spread = Math.sin(skT*.7+gestureIdx)*.06;
+
+  fingers.forEach((f,fi)=>{
+    const ext = extArr[fi] ?? 1;
+    f.forEach((seg,si)=>{
+      const curl = si===0 ? 1 : (si/3)*ext + (1-si/3)*(si===0?1:.3);
+      const px = wx + (seg[0]+spread*.2)*hsc;
+      const py = wy + seg[1]*hsc*curl + Math.sin(skT*1.3+fi*.5+si*.2)*1.5;
+      handPts.push({x:px,y:py,fi,si});
     });
   });
-  fingers.forEach(f=>{
-    for(let i=0;i<f.length-1;i++){
-      line(handPts[f[i]],handPts[f[i+1]],'rgba(34,211,238,0.7)',1.5);
+
+  // Draw finger bones
+  fingers.forEach((f,fi)=>{
+    for(let si=0;si<f.length-1;si++){
+      const a = handPts[fi*5+si], b = handPts[fi*5+si+1];
+      const alpha = si===0?0.5:0.8;
+      cam.beginPath();cam.moveTo(a.x,a.y);cam.lineTo(b.x,b.y);
+      cam.strokeStyle=`rgba(34,211,238,${alpha})`;cam.lineWidth=1.5;cam.stroke();
     }
   });
+  // Palm connections
+  const palms = [0,5,10,15,20];
+  for(let i=0;i<palms.length-1;i++){
+    line(handPts[palms[i]],handPts[palms[i+1]],'rgba(34,211,238,0.35)',1);
+  }
+  line(handPts[0],handPts[5],'rgba(34,211,238,0.35)',1);
+
+  // Hand dots
   handPts.forEach((p,i)=>{
-    dot(p,i===0?4:2.5,'#22D3EE');
+    dot(p, i===0||palms.includes(i)?3.5:2.5, '#22D3EE');
   });
 
-  // Main dots
-  [nose,lsh,rsh,le,re,lw,rw].forEach(p=>dot(p,4,'#6B7ED4'));
-  dot(nose,5,'#a78bfa');
+  // Feature vector visualization (right side)
+  const fvX = W - 28, fvY = 40;
+  cam.font = '8px monospace';
+  cam.fillStyle = 'rgba(34,211,238,0.25)';
+  for(let i=0;i<8;i++){
+    const val = (Math.sin(skT*2+i*.7)*.5+.5);
+    cam.fillRect(fvX, fvY+i*14, val*20, 6);
+  }
 
   // Scanlines
-  camCtx.fillStyle='rgba(0,0,0,0.03)';
-  for(let y=0;y<h;y+=3){ camCtx.fillRect(0,y,w,1); }
+  cam.fillStyle = 'rgba(0,0,0,0.025)';
+  for(let y=0;y<H;y+=4) cam.fillRect(0,y,W,2);
 
-  // Corner markers
-  const cm=12,cg=4,cc='rgba(107,126,212,0.5)';
-  [[0,0],[w,0],[0,h],[w,h]].forEach(([cx2,cy2])=>{
-    const sx=cx2===0?1:-1, sy=cy2===0?1:-1;
-    camCtx.strokeStyle=cc; camCtx.lineWidth=2;
-    camCtx.beginPath(); camCtx.moveTo(cx2+sx*cg,cy2+sy*cg);
-    camCtx.lineTo(cx2+sx*(cg+cm),cy2+sy*cg);
-    camCtx.moveTo(cx2+sx*cg,cy2+sy*cg);
-    camCtx.lineTo(cx2+sx*cg,cy2+sy*(cg+cm));
-    camCtx.stroke();
-  });
+  // Update gesture frame
+  gestureFrame++;
+  if(gestureFrame > g.frames + 20){
+    gestureFrame = 0;
+    gestureIdx = (gestureIdx+1) % GESTURES.length;
+  }
 
-  requestAnimationFrame(drawSkeleton);
+  requestAnimationFrame(drawCam);
 }
 
-/* ─── Scene controller ─── */
-const SCENE_IDS = ['s1','s2','s3','s4','s5','s6'];
-const DURATIONS = [5000,4000,9000,7000,7000,5500];
+/* ════════════════════════════════════════
+   RECOGNITION ANIMATION SEQUENCE
+════════════════════════════════════════ */
+const DEMO_SCRIPT = [
+  {t:1000, word:'안녕하세요', conf:82, cands:[['감사합니다',51],['수화',38]]},
+  {t:3500, word:'감사합니다', conf:76, cands:[['도움',44],['안녕',32]]},
+  {t:5800, word:'도움',       conf:68, cands:[['어디',31],['필요',25]]},
+  {t:7800, word:'주세요',     conf:71, cands:[['부탁',35],['요청',28]]},
+];
 
-let curIdx=0, progTimer=null, progStart=0;
-const prog=document.getElementById('prog');
+let demoTimers = [];
+function clearDemoTimers(){ demoTimers.forEach(clearTimeout); demoTimers=[]; }
 
-function hideAll(){ SCENE_IDS.forEach(id=>document.getElementById(id).classList.remove('on')); }
+function runDemo(){
+  document.getElementById('pills').innerHTML = '';
+  document.getElementById('aiTxt').textContent = '';
+  document.getElementById('aiBox').classList.remove('in');
+  document.getElementById('aiCur').style.display='none';
+  document.getElementById('recWord').textContent = '—';
+  document.getElementById('confFill').style.width = '0%';
+  document.getElementById('confPct').textContent = '0.0%';
+  document.getElementById('candList').innerHTML = '';
+  clearDemoTimers();
 
-// Scene enter handlers
-const onEnter = {
+  DEMO_SCRIPT.forEach((ev,i)=>{
+    const tid = setTimeout(()=>{
+      // Update recognition display
+      document.getElementById('recWord').textContent = ev.word;
+      document.getElementById('confFill').style.width = ev.conf+'%';
+      document.getElementById('confPct').textContent = ev.conf.toFixed(1)+'%';
+
+      // Candidates
+      document.getElementById('candList').innerHTML = ev.cands.map(([n,p])=>`
+        <div class="cand-row">
+          <span class="cand-name">${n}</span>
+          <div class="cand-track"><div class="cand-bar" style="width:${p}%"></div></div>
+          <span class="cand-pct">${p}%</span>
+        </div>`).join('');
+
+      // Add pill
+      const pill = document.createElement('span');
+      pill.className = 'pill'; pill.textContent = ev.word;
+      document.getElementById('pills').appendChild(pill);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>pill.classList.add('in')));
+
+      // AI sentence on last word
+      if(i === DEMO_SCRIPT.length-1){
+        setTimeout(()=>{
+          document.getElementById('aiBox').classList.add('in');
+          const aiCur = document.getElementById('aiCur');
+          aiCur.style.display='inline-block';
+          const full = '안녕하세요, 도움을 주셔서 감사합니다!';
+          let ci=0;
+          const typer = setInterval(()=>{
+            document.getElementById('aiTxt').textContent = full.slice(0,++ci);
+            if(ci>=full.length){
+              clearInterval(typer);
+              setTimeout(()=>aiCur.style.display='none',800);
+            }
+          },55);
+        }, 800);
+      }
+    }, ev.t);
+    demoTimers.push(tid);
+  });
+
+  // Buffer frames
+  let bf=10;
+  const bfInt = setInterval(()=>{
+    bf = Math.min(75, bf+(Math.random()*4)|0);
+    const el=document.getElementById('bufFrames');
+    if(el) el.textContent=bf+'f / 75f';
+  },120);
+  demoTimers.push(bfInt); // won't clearTimeout for interval but fine for demo
+}
+
+/* ════════════════════════════════════════
+   SCENE CONTROLLER
+════════════════════════════════════════ */
+const SCENES = ['s1','s2','s3','s4','s5','s6'];
+const DURATIONS = [4500, 4000, 11000, 6000, 6500, 6000];
+let curScene = 0, progTimer = null;
+const prog = document.getElementById('prog');
+
+function hideAll(){
+  SCENES.forEach(id=>document.getElementById(id).classList.remove('on'));
+}
+
+function numCount(el, target, dur){
+  const start = Date.now();
+  const tick = ()=>{
+    const p = Math.min(1,(Date.now()-start)/dur);
+    const val = Math.round(p*target);
+    el.textContent = val;
+    if(p<1) requestAnimationFrame(tick);
+    else el.textContent = target;
+  };
+  requestAnimationFrame(tick);
+}
+
+const ENTER = {
   s1(){
-    setTimeout(()=>document.getElementById('char1').classList.add('in'),100);
-    setTimeout(()=>document.getElementById('char1').classList.add('float'),800);
-    setTimeout(()=>document.getElementById('t1-title').classList.add('in'),500);
-    setTimeout(()=>document.getElementById('t1-sub').classList.add('in'),800);
+    const cw = document.getElementById('char1');
+    setTimeout(()=>{ cw.classList.add('in'); setTimeout(()=>cw.classList.add('float'),600); },100);
+    setTimeout(()=>document.getElementById('s1-brand').classList.add('in'),500);
+    setTimeout(()=>document.getElementById('s1-kw').classList.add('in'),750);
+    setTimeout(()=>{ document.getElementById('s1-line').classList.add('in'); document.getElementById('s1-line2').classList.add('in'); },900);
   },
   s2(){
-    setTimeout(()=>document.getElementById('sp1').classList.add('in'),300);
-    setTimeout(()=>document.getElementById('sp2').classList.add('in'),600);
-    setTimeout(()=>document.getElementById('p-text').classList.add('in'),1000);
-    setTimeout(()=>document.getElementById('p-sub').classList.add('in'),1500);
+    setTimeout(()=>document.getElementById('s2-pre').classList.add('in'),100);
+    setTimeout(()=>{
+      document.getElementById('s2-unit').classList.add('in');
+      numCount(document.getElementById('s2-num'), 35, 1200);
+    },300);
+    setTimeout(()=>document.getElementById('s2-txt').classList.add('in'),600);
+    setTimeout(()=>document.getElementById('s2-sub').classList.add('in'),1000);
+    setTimeout(()=>{ document.getElementById('s2-divider').style.width='200px'; document.getElementById('dg').classList.add('in'); },700);
   },
   s3(){
-    const shell=document.getElementById('app-shell');
-    setTimeout(()=>shell.classList.add('in'),200);
-    // Animate confidence bar
     setTimeout(()=>{
-      document.getElementById('rec-word').textContent='안녕하세요';
-      document.getElementById('conf-fill').style.width='78%';
-      document.getElementById('conf-val').textContent='78%';
-      // Candidates
-      const cands=[['감사합니다','42%'],['도움','31%']];
-      const candsEl=document.getElementById('cands');
-      candsEl.innerHTML=cands.map(([w,p])=>`
-        <div class="cand">
-          <span>${w}</span>
-          <div style="display:flex;align-items:center;gap:6px">
-            <div class="cand-bar"><div class="cand-fill" style="width:${p}"></div></div>
-            <span style="width:28px;text-align:right">${p}</span>
-          </div>
-        </div>`).join('');
-    },1200);
-    // Words
-    const words=[['안녕하세요',1800],['감사합니다',3200],['도움',4800]];
-    const pillsEl=document.getElementById('word-pills');
-    pillsEl.innerHTML='';
-    words.forEach(([w,t])=>{
-      const pill=document.createElement('span');
-      pill.className='word-pill'; pill.textContent=w;
-      pillsEl.appendChild(pill);
-      setTimeout(()=>pill.classList.add('in'),t);
-    });
-    // AI sentence
-    setTimeout(()=>{
-      const sent=document.getElementById('ai-sent');
-      const txt=document.getElementById('ai-text');
-      sent.classList.add('in');
-      const full='안녕하세요, 도움을 주셔서 감사합니다.';
-      let i=0;
-      const typer=setInterval(()=>{
-        txt.textContent=full.slice(0,++i);
-        if(i>=full.length) clearInterval(typer);
-      },60);
-    },5500);
-    // Buf frames counter
-    let f=20;
-    const fInt=setInterval(()=>{
-      f=Math.min(75,(f+Math.random()*3)|0);
-      const el=document.getElementById('buf-frames');
-      if(el) el.textContent=f+'f';
-    },100);
-    setTimeout(()=>clearInterval(fInt),9000);
-    drawSkeleton();
+      const af=document.getElementById('appFrame');
+      af.classList.add('in');
+      // Init cam
+      initCam();
+      camRunning=true;
+      drawCam();
+    },200);
+    setTimeout(runDemo, 600);
   },
   s4(){
-    setTimeout(()=>document.getElementById('how-title').classList.add('in'),200);
+    setTimeout(()=>document.getElementById('s4-title').classList.add('in'),100);
     [0,1,2,3].forEach(i=>{
-      setTimeout(()=>document.getElementById('step'+i).classList.add('in'),400+i*250);
+      setTimeout(()=>document.getElementById('pn'+i).classList.add('in'),300+i*180);
+      if(i<3) setTimeout(()=>document.getElementById('pa'+i).classList.add('in'),420+i*180);
     });
   },
   s5(){
-    setTimeout(()=>document.getElementById('feat-title').classList.add('in'),200);
+    setTimeout(()=>document.getElementById('s5-title').classList.add('in'),100);
     [0,1,2].forEach(i=>{
-      setTimeout(()=>document.getElementById('fc'+i).classList.add('in'),400+i*180);
+      setTimeout(()=>document.getElementById('p'+i).classList.add('in'),300+i*150);
     });
   },
   s6(){
-    const char=document.getElementById('cta-char');
-    setTimeout(()=>{char.classList.add('in'); setTimeout(()=>char.classList.add('float'),600);},200);
-    setTimeout(()=>document.getElementById('cta-tag').classList.add('in'),400);
-    setTimeout(()=>document.getElementById('cta-url').classList.add('in'),800);
-    setTimeout(()=>document.getElementById('cta-btn').classList.add('in'),1100);
+    const cc=document.getElementById('ctaChar');
+    setTimeout(()=>{ cc.classList.add('in'); setTimeout(()=>cc.classList.add('float'),500); },150);
+    setTimeout(()=>document.getElementById('cta1').classList.add('in'),350);
+    setTimeout(()=>document.getElementById('ctaUrl').classList.add('in'),700);
+    setTimeout(()=>document.getElementById('ctaBtn').classList.add('in'),1000);
   },
 };
 
-// Clean up handlers (reset states)
-const onLeave = {
+const LEAVE = {
   s1(){
-    const c=document.getElementById('char1');
-    c.classList.remove('in','float');
-    document.getElementById('t1-title').classList.remove('in');
-    document.getElementById('t1-sub').classList.remove('in');
+    const cw=document.getElementById('char1');
+    cw.classList.remove('in','float');
+    ['s1-brand','s1-kw'].forEach(id=>document.getElementById(id).classList.remove('in'));
+    ['s1-line','s1-line2'].forEach(id=>document.getElementById(id).classList.remove('in'));
   },
   s2(){
-    ['sp1','sp2','p-text','p-sub'].forEach(id=>document.getElementById(id).classList.remove('in'));
+    ['s2-pre','s2-unit','s2-txt','s2-sub'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.classList.remove('in');
+    });
+    document.getElementById('s2-divider').style.width='0';
+    document.getElementById('dg').classList.remove('in');
   },
   s3(){
-    document.getElementById('app-shell').classList.remove('in');
-    document.getElementById('rec-word').textContent='—';
-    document.getElementById('conf-fill').style.width='0%';
-    document.getElementById('conf-val').textContent='0%';
-    document.getElementById('cands').innerHTML='';
-    document.getElementById('word-pills').innerHTML='';
-    document.getElementById('ai-sent').classList.remove('in');
-    document.getElementById('ai-text').textContent='';
+    camRunning=false;
+    clearDemoTimers();
+    document.getElementById('appFrame').classList.remove('in');
+    document.getElementById('appFrame').style.opacity='0';
+    setTimeout(()=>document.getElementById('appFrame').style.opacity='',50);
   },
   s4(){
-    document.getElementById('how-title').classList.remove('in');
-    [0,1,2,3].forEach(i=>document.getElementById('step'+i).classList.remove('in'));
+    document.getElementById('s4-title').classList.remove('in');
+    [0,1,2,3].forEach(i=>document.getElementById('pn'+i).classList.remove('in'));
+    [0,1,2].forEach(i=>document.getElementById('pa'+i).classList.remove('in'));
   },
   s5(){
-    document.getElementById('feat-title').classList.remove('in');
-    [0,1,2].forEach(i=>document.getElementById('fc'+i).classList.remove('in'));
+    document.getElementById('s5-title').classList.remove('in');
+    [0,1,2].forEach(i=>document.getElementById('p'+i).classList.remove('in'));
   },
   s6(){
-    const c=document.getElementById('cta-char');
-    c.classList.remove('in','float');
-    ['cta-tag','cta-url','cta-btn'].forEach(id=>document.getElementById(id).classList.remove('in'));
+    const cc=document.getElementById('ctaChar');
+    cc.classList.remove('in','float');
+    ['cta1','ctaUrl','ctaBtn'].forEach(id=>document.getElementById(id).classList.remove('in'));
   },
 };
 
 function goTo(idx){
-  const prevId=SCENE_IDS[curIdx];
-  onLeave[prevId]?.();
+  const prev = SCENES[curScene];
+  LEAVE[prev]?.();
   hideAll();
-  curIdx=idx%SCENE_IDS.length;
-  const id=SCENE_IDS[curIdx];
+  curScene = idx % SCENES.length;
+  const id = SCENES[curScene];
   document.getElementById(id).classList.add('on');
-  onEnter[id]?.();
+  ENTER[id]?.();
+
   // Progress bar
   prog.style.transition='none'; prog.style.width='0%';
   requestAnimationFrame(()=>{
-    prog.style.transition=`width ${DURATIONS[curIdx]}ms linear`;
+    const d = DURATIONS[curScene];
+    prog.style.transition=`width ${d}ms linear`;
     prog.style.width='100%';
   });
+
   if(progTimer) clearTimeout(progTimer);
-  progTimer=setTimeout(()=>goTo(curIdx+1), DURATIONS[curIdx]);
+  progTimer = setTimeout(()=>goTo(curScene+1), DURATIONS[curScene]);
+}
+
+// Build dot grid
+const dg = document.getElementById('dg');
+dg.innerHTML = '';
+for(let i=0;i<48;i++){
+  const s=document.createElement('span');
+  if(i<6) s.classList.add('hi');
+  dg.appendChild(s);
 }
 
 // Start
