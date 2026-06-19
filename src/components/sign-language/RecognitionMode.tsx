@@ -454,7 +454,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
   };
 
   const copySentence = (): void => {
-    navigator.clipboard.writeText(recognizedWords.join(' '));
+    navigator.clipboard.writeText(naturalSentence || recognizedWords.join(' '));
   };
 
   const hasDetection = currentLandmarks && (

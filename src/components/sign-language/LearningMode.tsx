@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { base44 } from "@/api/base44Client";
 import { useMutation } from "@tanstack/react-query";
-import { Save, Hand, CheckCircle2, AlertCircle, Circle, StopCircle, RotateCcw, Trash2 } from 'lucide-react';
+import { Save, Hand, CheckCircle2, AlertCircle, Circle, StopCircle, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import WebcamCapture from "@/components/sign-language/WebcamCapture";
@@ -130,21 +130,7 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
   });
 
   // ---------------------------------------------------------------
-  // 카운트다운 → 자동 녹화 시작
-  // ---------------------------------------------------------------
-  useEffect(() => {
-    if (countdown === null) return;
-    if (countdown === 0) {
-      setCountdown(null);
-      startRecordingNow();
-      return;
-    }
-    const timer = setTimeout(() => setCountdown(prev => (prev ?? 1) - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
-
-  // ---------------------------------------------------------------
-  // 녹화 함수 (프레임 수집 useEffect보다 먼저 선언 — forward reference 방지)
+  // 녹화 함수 (countdown useEffect보다 먼저 선언 — forward reference 방지)
   // ---------------------------------------------------------------
   const startRecordingNow = useCallback(() => {
     recordingFramesRef.current = [];
@@ -186,6 +172,20 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
 
     setTakes(prev => [...prev, { frames: trimmed, handDetectionRate, durationSec }]);
   }, [isRecording]);
+
+  // ---------------------------------------------------------------
+  // 카운트다운 → 자동 녹화 시작
+  // ---------------------------------------------------------------
+  useEffect(() => {
+    if (countdown === null) return;
+    if (countdown === 0) {
+      setCountdown(null);
+      startRecordingNow();
+      return;
+    }
+    const timer = setTimeout(() => setCountdown(prev => (prev ?? 1) - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown, startRecordingNow]);
 
   // ---------------------------------------------------------------
   // 프레임 수집 (녹화 중에만)

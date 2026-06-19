@@ -10,6 +10,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { BookOpen, Hand, Mic, Sparkles } from "lucide-react";
+import type { LandmarksDetected } from "@/lib/supabaseClient";
 
 import WebcamCapture from "@/components/sign-language/WebcamCapture";
 import LearningMode from "@/components/sign-language/LearningMode";
@@ -31,7 +32,7 @@ export default function SignLanguageApp() {
   // 학습 모드 다이얼로그 표시 여부
   const [showLearningMode, setShowLearningMode] = useState(false);
   // 웹캠에서 감지된 최신 랜드마크
-  const [currentLandmarks, setCurrentLandmarks] = useState(null);
+  const [currentLandmarks, setCurrentLandmarks] = useState<LandmarksDetected | null>(null);
 
   const queryClient = useQueryClient();
 

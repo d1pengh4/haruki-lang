@@ -181,13 +181,13 @@ export function extractHandFeatures(handLandmarks: Landmark[]): HandFeatures | n
     thumbSpread / handScale
   ];
 
-  // 5. 손가락 굽힘 각도 (5개)
+  // 5. 손가락 굽힘 각도 (5개) — 각 손가락의 PIP-DIP-TIP 각도 (연속 관절 기준)
   const fingerBendAngles = [
-    calculateAngle(handLandmarks[2],  handLandmarks[3],  handLandmarks[4]),
-    calculateAngle(handLandmarks[5],  handLandmarks[7],  handLandmarks[8]),
-    calculateAngle(handLandmarks[9],  handLandmarks[11], handLandmarks[12]),
-    calculateAngle(handLandmarks[13], handLandmarks[15], handLandmarks[16]),
-    calculateAngle(handLandmarks[17], handLandmarks[19], handLandmarks[20])
+    calculateAngle(handLandmarks[2],  handLandmarks[3],  handLandmarks[4]),  // 엄지: IP-DIP-TIP
+    calculateAngle(handLandmarks[6],  handLandmarks[7],  handLandmarks[8]),  // 검지: PIP-DIP-TIP
+    calculateAngle(handLandmarks[10], handLandmarks[11], handLandmarks[12]), // 중지: PIP-DIP-TIP
+    calculateAngle(handLandmarks[14], handLandmarks[15], handLandmarks[16]), // 약지: PIP-DIP-TIP
+    calculateAngle(handLandmarks[18], handLandmarks[19], handLandmarks[20])  // 새끼: PIP-DIP-TIP
   ];
 
   return { fingerExtensions, fingerAngles, fingerTipDistances, handShapeRatios, fingerBendAngles };

@@ -127,7 +127,9 @@ export const base44 = {
           .eq('id', id)
           .single()
 
+        // PGRST116 = 행 없음 → null 반환 (throw 하지 않음)
         if (error) {
+          if (error.code === 'PGRST116') return null
           console.error('수화 조회 오류:', error)
           throw new Error(`수화 조회 실패: ${error.message}`)
         }
