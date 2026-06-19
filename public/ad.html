@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HARUKI — AI 수화 번역기</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#6B7ED4;--cyan:#22D3EE;--violet:#8B5CF6;--green:#34D399;
+  --bg:#050810;--card:rgba(255,255,255,0.04);--border:rgba(255,255,255,0.08);
+}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+
+#stage{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:960px;height:540px;
+  background:var(--bg);overflow:hidden;border-radius:12px;
+  box-shadow:0 0 80px rgba(107,126,212,0.3);
+}
+
+/* Background canvas */
+#bgc{position:absolute;inset:0;z-index:0}
+
+/* Scenes */
+.sc{
+  position:absolute;inset:0;z-index:1;
+  opacity:0;pointer-events:none;
+  transition:opacity 0.7s ease;
+}
+.sc.on{opacity:1;pointer-events:all}
+
+/* ─── Progress bar ─── */
+#prog{
+  position:absolute;bottom:0;left:0;height:3px;
+  background:linear-gradient(90deg,var(--blue),var(--cyan));
+  width:0%;z-index:99;transition:width linear;
+}
+
+/* ─── SCENE 1: INTRO ─── */
+#s1{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
+#s1 .char-wrap{
+  opacity:0;transform:translateY(-60px) scale(0.6);
+  transition:opacity 0.6s cubic-bezier(.34,1.56,.64,1),
+             transform 0.6s cubic-bezier(.34,1.56,.64,1);
+}
+#s1 .char-wrap.in{opacity:1;transform:translateY(0) scale(1)}
+#s1 .char-wrap.float{animation:floatY 3s ease-in-out infinite}
+@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.eye-l,.eye-r{transform-origin:center;animation:blink 4s ease-in-out infinite}
+.eye-r{animation-delay:0.08s}
+@keyframes blink{0%,85%,100%{transform:scaleY(1)}90%{transform:scaleY(0.05)}}
+
+#s1 .title-wrap{margin-top:-8px;display:flex;flex-direction:column;align-items:center;gap:6px}
+#s1 .big-title{
+  font-size:52px;font-weight:800;letter-spacing:8px;
+  background:linear-gradient(135deg,#fff 30%,var(--blue));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  opacity:0;transform:translateY(20px);
+  transition:opacity 0.5s 0.5s ease,transform 0.5s 0.5s ease;
+}
+#s1 .big-title.in{opacity:1;transform:translateY(0)}
+#s1 .sub{
+  font-size:15px;color:rgba(255,255,255,0.45);letter-spacing:3px;font-weight:400;
+  opacity:0;transition:opacity 0.5s 0.9s ease;
+}
+#s1 .sub.in{opacity:1}
+#s1 .glow-ring{
+  position:absolute;width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,rgba(107,126,212,0.25) 0%,transparent 70%);
+  animation:ringPulse 2.5s ease-in-out infinite;pointer-events:none;
+}
+@keyframes ringPulse{0%,100%{transform:scale(0.9);opacity:0.4}50%{transform:scale(1.2);opacity:0.8}}
+
+/* ─── SCENE 2: PROBLEM ─── */
+#s2{display:flex;align-items:center;justify-content:center;gap:60px}
+#s2 .person{display:flex;flex-direction:column;align-items:center;gap:10px}
+#s2 .avatar{width:64px;height:64px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);
+  display:flex;align-items:center;justify-content:center;font-size:28px}
+#s2 .speech{
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:8px 14px;font-size:13px;color:rgba(255,255,255,0.5);
+  opacity:0;transform:translateY(8px);
+  transition:opacity 0.4s ease,transform 0.4s ease;
+}
+#s2 .speech.in{opacity:1;transform:translateY(0)}
+#s2 .barrier{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+#s2 .wall{
+  width:4px;height:120px;
+  background:linear-gradient(180deg,transparent,rgba(255,60,60,0.6),transparent);
+  position:relative;
+}
+#s2 .wall::before{
+  content:'';position:absolute;left:-1px;top:0;bottom:0;width:6px;
+  background:rgba(255,60,60,0.15);filter:blur(6px);
+}
+#s2 .q-marks{font-size:24px;opacity:0.4;letter-spacing:4px;animation:qBounce 1.5s ease-in-out infinite}
+@keyframes qBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+#s2 .p-text{
+  position:absolute;bottom:80px;left:0;right:0;text-align:center;
+  font-size:22px;font-weight:700;opacity:0;transform:translateY(10px);
+  transition:opacity 0.5s 0.4s ease,transform 0.5s 0.4s ease;
+}
+#s2 .p-text.in{opacity:1;transform:translateY(0)}
+#s2 .p-sub{
+  position:absolute;bottom:52px;left:0;right:0;text-align:center;
+  font-size:13px;color:rgba(255,255,255,0.4);opacity:0;
+  transition:opacity 0.5s 0.8s ease;
+}
+#s2 .p-sub.in{opacity:1}
+
+/* ─── SCENE 3: APP DEMO ─── */
+#s3{flex-direction:column}
+#s3 .app-shell{
+  width:880px;height:480px;
+  background:#0a0e1a;border-radius:10px;
+  border:1px solid var(--border);overflow:hidden;
+  display:flex;flex-direction:column;
+  opacity:0;transform:scale(0.95);
+  transition:opacity 0.5s ease,transform 0.5s ease;
+}
+#s3 .app-shell.in{opacity:1;transform:scale(1)}
+/* App header */
+.app-hdr{
+  height:44px;background:rgba(0,0,0,0.5);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;padding:0 16px;
+  flex-shrink:0;
+}
+.app-hdr .logo-row{display:flex;align-items:center;gap:8px}
+.app-hdr .logo-img{width:28px;height:28px;border-radius:6px}
+.app-hdr .logo-name{font-size:14px;font-weight:700;color:rgba(255,255,255,0.9)}
+.app-hdr .mode-toggle{
+  display:flex;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;gap:2px;
+}
+.mode-btn{
+  padding:4px 10px;border-radius:6px;font-size:12px;color:rgba(255,255,255,0.4);
+  cursor:default;transition:all 0.3s;
+}
+.mode-btn.act{background:#7C3AED;color:white}
+.app-hdr .learn-btn{
+  background:#7C3AED;color:white;border:none;border-radius:6px;
+  padding:5px 12px;font-size:12px;font-weight:600;
+}
+/* App body */
+.app-body{display:flex;flex:1;overflow:hidden}
+/* Camera panel */
+.cam-panel{
+  width:52%;border-right:1px solid var(--border);
+  position:relative;background:#080c14;overflow:hidden;
+}
+.cam-canvas-wrap{width:100%;height:100%;position:relative}
+#camCanvas{width:100%;height:100%}
+.fps-badge{
+  position:absolute;top:8px;left:8px;
+  background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.1);
+  border-radius:20px;padding:3px 10px;font-size:11px;
+  display:flex;align-items:center;gap:5px;
+}
+.fps-dot{width:6px;height:6px;border-radius:50%;background:#ef4444;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.fps-badge span{color:rgba(255,255,255,0.7)}
+/* Right panel */
+.right-panel{flex:1;display:flex;flex-direction:column;padding:10px;gap:8px;overflow:hidden}
+/* Sentence card */
+.sent-card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;
+}
+.sent-card .card-hdr{font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.sent-card .words{display:flex;flex-wrap:wrap;gap:5px;min-height:28px}
+.word-pill{
+  background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);
+  border-radius:20px;padding:3px 10px;font-size:12px;color:rgba(255,255,255,0.8);
+  opacity:0;transform:scale(0.7);
+  transition:opacity 0.3s ease,transform 0.3s cubic-bezier(.34,1.56,.64,1);
+}
+.word-pill.in{opacity:1;transform:scale(1)}
+.ai-sentence{
+  margin-top:8px;padding:8px 10px;border-radius:8px;
+  background:linear-gradient(135deg,rgba(107,126,212,0.12),rgba(34,211,238,0.08));
+  border:1px solid rgba(107,126,212,0.25);
+  font-size:14px;font-weight:600;color:white;min-height:32px;
+  opacity:0;transition:opacity 0.4s ease;
+}
+.ai-sentence.in{opacity:1}
+.ai-badge{font-size:9px;color:var(--cyan);text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:3px;display:flex;align-items:center;gap:3px}
+
+/* Recognition card */
+.rec-card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:10px 12px;flex:1;
+}
+.rec-card .card-hdr{font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;
+  letter-spacing:1px;margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.detect-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite}
+.rec-result{
+  padding:10px;border-radius:8px;background:rgba(0,0,0,0.3);
+  border:1px solid rgba(255,255,255,0.06);
+}
+.rec-word{font-size:36px;font-weight:900;letter-spacing:-1px;color:white;margin-bottom:8px}
+.conf-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.conf-label{font-size:10px;color:rgba(255,255,255,0.35)}
+.conf-val{font-size:13px;font-weight:700;font-family:monospace;color:var(--green)}
+.conf-bar-bg{height:6px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden}
+.conf-bar-fill{
+  height:100%;border-radius:4px;width:0%;
+  background:linear-gradient(90deg,var(--blue),var(--cyan));
+  transition:width 1.5s cubic-bezier(.22,1,.36,1);
+}
+.cands{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.cand{display:flex;align-items:center;justify-content:space-between;
+  font-size:11px;color:rgba(255,255,255,0.3)}
+.cand-bar{width:40px;height:3px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden}
+.cand-fill{height:100%;background:rgba(255,255,255,0.15);border-radius:2px}
+
+/* Buffer bar */
+.buf-row{margin-top:auto;padding-top:8px}
+.buf-label{font-size:9px;color:rgba(255,255,255,0.2);margin-bottom:3px;
+  display:flex;justify-content:space-between}
+.buf-bg{height:2px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden}
+.buf-fill{height:100%;background:rgba(139,92,246,0.4);border-radius:2px;
+  animation:bufAnim 2s linear infinite}
+@keyframes bufAnim{0%{width:20%}50%{width:75%}100%{width:45%}}
+
+/* ─── SCENE 4: HOW IT WORKS ─── */
+#s4{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px}
+#s4 .how-title{
+  font-size:28px;font-weight:800;text-align:center;
+  opacity:0;transform:translateY(-15px);
+  transition:opacity 0.5s ease,transform 0.5s ease;
+}
+#s4 .how-title.in{opacity:1;transform:translateY(0)}
+#s4 .steps{display:flex;align-items:center;gap:0}
+.step{
+  display:flex;flex-direction:column;align-items:center;gap:12px;width:160px;
+  opacity:0;transform:translateY(20px);
+  transition:opacity 0.4s ease,transform 0.4s ease;
+}
+.step.in{opacity:1;transform:translateY(0)}
+.step-icon{
+  width:72px;height:72px;border-radius:16px;
+  border:1px solid var(--border);background:var(--card);
+  display:flex;align-items:center;justify-content:center;font-size:28px;
+  position:relative;overflow:hidden;
+}
+.step-icon::after{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(circle at 50% 50%,rgba(107,126,212,0.2),transparent);
+  opacity:0;animation:stepGlow 2s ease-in-out infinite;
+}
+@keyframes stepGlow{0%,100%{opacity:0}50%{opacity:1}}
+.step-label{font-size:13px;font-weight:700;text-align:center;color:rgba(255,255,255,0.9)}
+.step-desc{font-size:10px;color:rgba(255,255,255,0.35);text-align:center;line-height:1.5}
+.step-arrow{font-size:20px;color:rgba(107,126,212,0.4);margin:0 -8px;margin-bottom:24px;flex-shrink:0}
+.tech-tag{
+  display:inline-block;margin-top:4px;padding:2px 7px;
+  background:rgba(107,126,212,0.15);border:1px solid rgba(107,126,212,0.3);
+  border-radius:20px;font-size:9px;color:var(--blue);font-family:monospace;
+}
+
+/* ─── SCENE 5: FEATURES ─── */
+#s5{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px}
+#s5 .feat-title{
+  font-size:28px;font-weight:800;
+  opacity:0;transition:opacity 0.5s ease;
+}
+#s5 .feat-title.in{opacity:1}
+#s5 .cards{display:flex;gap:16px}
+.feat-card{
+  width:256px;padding:24px;border-radius:16px;
+  background:var(--card);border:1px solid var(--border);
+  display:flex;flex-direction:column;gap:12px;
+  opacity:0;transform:translateY(30px);
+  transition:opacity 0.5s ease,transform 0.5s cubic-bezier(.34,1.2,.64,1);
+}
+.feat-card.in{opacity:1;transform:translateY(0)}
+.feat-icon{font-size:32px;width:56px;height:56px;border-radius:12px;
+  background:rgba(107,126,212,0.1);border:1px solid rgba(107,126,212,0.2);
+  display:flex;align-items:center;justify-content:center}
+.feat-name{font-size:16px;font-weight:700}
+.feat-desc{font-size:12px;color:rgba(255,255,255,0.45);line-height:1.6}
+.feat-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.ftag{
+  padding:2px 8px;border-radius:20px;font-size:10px;font-family:monospace;
+  background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);color:var(--cyan);
+}
+
+/* ─── SCENE 6: CTA ─── */
+#s6{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
+#s6 .cta-char{
+  opacity:0;transform:scale(0.7);
+  transition:opacity 0.5s cubic-bezier(.34,1.4,.64,1),
+             transform 0.5s cubic-bezier(.34,1.4,.64,1);
+}
+#s6 .cta-char.in{opacity:1;transform:scale(1)}
+#s6 .cta-char.float{animation:floatY 3s ease-in-out infinite}
+#s6 .cta-tagline{
+  font-size:32px;font-weight:900;letter-spacing:2px;margin-top:8px;
+  background:linear-gradient(135deg,white 40%,var(--blue));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  opacity:0;transform:translateY(12px);
+  transition:opacity 0.5s 0.4s ease,transform 0.5s 0.4s ease;
+}
+#s6 .cta-tagline.in{opacity:1;transform:translateY(0)}
+#s6 .cta-url{
+  margin-top:10px;font-size:14px;font-family:monospace;
+  color:rgba(255,255,255,0.35);letter-spacing:1px;
+  opacity:0;transition:opacity 0.5s 0.8s ease;
+}
+#s6 .cta-url.in{opacity:1}
+#s6 .cta-btn{
+  margin-top:20px;padding:12px 32px;
+  background:linear-gradient(135deg,var(--blue),var(--violet));
+  border:none;border-radius:12px;color:white;
+  font-size:15px;font-weight:700;letter-spacing:1px;cursor:pointer;
+  opacity:0;transform:translateY(10px);
+  transition:opacity 0.5s 1.1s ease,transform 0.5s 1.1s ease;
+  box-shadow:0 8px 30px rgba(107,126,212,0.4);
+  animation:btnGlow 2.5s ease-in-out infinite;
+}
+#s6 .cta-btn.in{opacity:1;transform:translateY(0)}
+@keyframes btnGlow{
+  0%,100%{box-shadow:0 8px 30px rgba(107,126,212,0.4)}
+  50%{box-shadow:0 8px 40px rgba(107,126,212,0.7)}
+}
+#s6 .cta-glow{
+  position:absolute;width:300px;height:300px;pointer-events:none;
+  background:radial-gradient(circle,rgba(107,126,212,0.2) 0%,transparent 70%);
+  animation:ringPulse 2.5s ease-in-out infinite;
+}
+
+/* ─── Haruki SVG char ─── */
+.haruki-svg{display:block}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="bgc"></canvas>
+
+  <!-- ══ SCENE 1: INTRO ══ -->
+  <div class="sc" id="s1">
+    <div id="s1-glow-ring" class="glow-ring"></div>
+    <div class="char-wrap" id="char1">
+      <svg class="haruki-svg" width="160" height="180" viewBox="0 0 200 220" fill="none">
+        <circle cx="78" cy="46" r="18" fill="#6B7ED4"/>
+        <circle cx="100" cy="36" r="22" fill="#6B7ED4"/>
+        <circle cx="122" cy="46" r="18" fill="#6B7ED4"/>
+        <rect x="14" y="52" width="172" height="130" rx="65" fill="#6B7ED4"/>
+        <rect x="30" y="68" width="140" height="98" rx="49" fill="#1A1A1C"/>
+        <ellipse class="eye-l" cx="75" cy="108" rx="16" ry="21" fill="white" style="transform-origin:75px 108px"/>
+        <ellipse class="eye-r" cx="125" cy="108" rx="16" ry="21" fill="white" style="transform-origin:125px 108px"/>
+        <path d="M83 130 L100 145 L117 130" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="title-wrap">
+      <div class="big-title" id="t1-title">HARUKI</div>
+      <div class="sub" id="t1-sub">A I &nbsp; 수 화 &nbsp; 번 역 기</div>
+    </div>
+  </div>
+
+  <!-- ══ SCENE 2: PROBLEM ══ -->
+  <div class="sc" id="s2">
+    <div class="person">
+      <div class="avatar">🧑</div>
+      <div class="speech" id="sp1">안녕하세요!</div>
+    </div>
+    <div class="barrier">
+      <div class="q-marks">???</div>
+      <div class="wall"></div>
+      <div class="q-marks">???</div>
+    </div>
+    <div class="person">
+      <div class="avatar" style="border-color:rgba(107,126,212,0.4)">🧏</div>
+      <div class="speech" id="sp2" style="border-color:rgba(107,126,212,0.3)">
+        <span style="color:var(--blue)">👋</span> (수화)
+      </div>
+    </div>
+    <div class="p-text" id="p-text" style="color:rgba(255,255,255,0.85)">
+      수화를 모르면, 소통이 막힙니다
+    </div>
+    <div class="p-sub" id="p-sub">한국의 약 35만 명 청각 장애인과 일반인 사이의 언어 장벽</div>
+  </div>
+
+  <!-- ══ SCENE 3: APP DEMO ══ -->
+  <div class="sc" id="s3" style="align-items:center;justify-content:center">
+    <div class="app-shell" id="app-shell">
+      <!-- Header -->
+      <div class="app-hdr">
+        <div class="logo-row">
+          <img src="/logo.png" class="logo-img" alt="Haruki"/>
+          <span class="logo-name">하루키</span>
+        </div>
+        <div class="mode-toggle">
+          <div class="mode-btn act">✋ 수화 모드</div>
+          <div class="mode-btn">🎤 음성 모드</div>
+        </div>
+        <button class="learn-btn">📖 수화 학습하기</button>
+      </div>
+      <!-- Body -->
+      <div class="app-body">
+        <!-- Camera -->
+        <div class="cam-panel">
+          <div class="cam-canvas-wrap">
+            <canvas id="camCanvas"></canvas>
+          </div>
+          <div class="fps-badge">
+            <div class="fps-dot"></div>
+            <span>실시간</span>
+            <span id="fps-num" style="font-family:monospace;color:white">30 FPS</span>
+          </div>
+        </div>
+        <!-- Right panel -->
+        <div class="right-panel">
+          <!-- Sentence card -->
+          <div class="sent-card">
+            <div class="card-hdr">✨ 인식된 문장</div>
+            <div class="words" id="word-pills"></div>
+            <div class="ai-sentence" id="ai-sent">
+              <div class="ai-badge">✦ AI 문장</div>
+              <span id="ai-text"></span>
+            </div>
+          </div>
+          <!-- Recognition card -->
+          <div class="rec-card">
+            <div class="card-hdr">
+              <div class="detect-dot"></div>실시간 인식
+            </div>
+            <div class="rec-result">
+              <div class="rec-word" id="rec-word">—</div>
+              <div class="conf-row">
+                <span class="conf-label">신뢰도</span>
+                <span class="conf-val" id="conf-val">0%</span>
+              </div>
+              <div class="conf-bar-bg">
+                <div class="conf-bar-fill" id="conf-fill"></div>
+              </div>
+              <div class="cands" id="cands"></div>
+            </div>
+            <div class="buf-row">
+              <div class="buf-label"><span>버퍼</span><span id="buf-frames">0f</span></div>
+              <div class="buf-bg"><div class="buf-fill"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCENE 4: HOW IT WORKS ══ -->
+  <div class="sc" id="s4">
+    <div class="how-title" id="how-title">어떻게 작동하나요?</div>
+    <div class="steps" id="steps">
+      <div class="step" id="step0">
+        <div class="step-icon">📷</div>
+        <div class="step-label">웹캠 캡처</div>
+        <div class="step-desc">MediaPipe Holistic<br>손·포즈·얼굴 감지</div>
+        <span class="tech-tag">30fps</span>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step" id="step1">
+        <div class="step-icon">📐</div>
+        <div class="step-label">특징 추출</div>
+        <div class="step-desc">33D 손 특징벡터<br>위치·크기 불변</div>
+        <span class="tech-tag">33D + 24D + 20D</span>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step" id="step2">
+        <div class="step-icon">🔍</div>
+        <div class="step-label">SDTW 매칭</div>
+        <div class="step-desc">시퀀스 내 최적<br>부분 구간 탐색</div>
+        <span class="tech-tag">SubsequenceDTW</span>
+      </div>
+      <div class="step-arrow">→</div>
+      <div class="step" id="step3">
+        <div class="step-icon">✨</div>
+        <div class="step-label">AI 문장 변환</div>
+        <div class="step-desc">단어 → 자연스러운<br>한국어 문장</div>
+        <span class="tech-tag">Qwen 2.5-7B</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCENE 5: FEATURES ══ -->
+  <div class="sc" id="s5">
+    <div class="feat-title" id="feat-title">하루키가 할 수 있는 것</div>
+    <div class="cards">
+      <div class="feat-card" id="fc0">
+        <div class="feat-icon">📷</div>
+        <div class="feat-name">실시간 수화 인식</div>
+        <div class="feat-desc">웹캠 하나로 즉시 수화를 인식합니다. 설치 없이 브라우저에서 바로 사용 가능합니다.</div>
+        <div class="feat-tags">
+          <span class="ftag">MediaPipe</span>
+          <span class="ftag">30fps</span>
+          <span class="ftag">SDTW</span>
+        </div>
+      </div>
+      <div class="feat-card" id="fc1" style="transition-delay:0.15s">
+        <div class="feat-icon" style="background:rgba(139,92,246,0.1);border-color:rgba(139,92,246,0.2)">✋</div>
+        <div class="feat-name">직접 학습·추가</div>
+        <div class="feat-desc">수화를 직접 녹화해서 등록하세요. 5테이크, 자동 반전·속도 증강으로 정확도를 높입니다.</div>
+        <div class="feat-tags">
+          <span class="ftag" style="border-color:rgba(139,92,246,0.3);color:var(--violet)">5 Takes</span>
+          <span class="ftag" style="border-color:rgba(139,92,246,0.3);color:var(--violet)">Auto Augment</span>
+        </div>
+      </div>
+      <div class="feat-card" id="fc2" style="transition-delay:0.3s">
+        <div class="feat-icon" style="background:rgba(34,211,238,0.08);border-color:rgba(34,211,238,0.2)">🔊</div>
+        <div class="feat-name">AI 문장 + 음성 출력</div>
+        <div class="feat-desc">인식된 단어를 Qwen 2.5-7B가 자연스러운 문장으로 변환하고, TTS로 읽어드립니다.</div>
+        <div class="feat-tags">
+          <span class="ftag" style="border-color:rgba(34,211,238,0.3);color:var(--cyan)">Qwen2.5-7B</span>
+          <span class="ftag" style="border-color:rgba(34,211,238,0.3);color:var(--cyan)">TTS 한국어</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCENE 6: CTA ══ -->
+  <div class="sc" id="s6">
+    <div class="cta-glow"></div>
+    <div class="cta-char" id="cta-char">
+      <svg class="haruki-svg" width="130" height="148" viewBox="0 0 200 220" fill="none">
+        <circle cx="78" cy="46" r="18" fill="#6B7ED4"/>
+        <circle cx="100" cy="36" r="22" fill="#6B7ED4"/>
+        <circle cx="122" cy="46" r="18" fill="#6B7ED4"/>
+        <rect x="14" y="52" width="172" height="130" rx="65" fill="#6B7ED4"/>
+        <rect x="30" y="68" width="140" height="98" rx="49" fill="#1A1A1C"/>
+        <ellipse class="eye-l" cx="75" cy="108" rx="16" ry="21" fill="white" style="transform-origin:75px 108px"/>
+        <ellipse class="eye-r" cx="125" cy="108" rx="16" ry="21" fill="white" style="transform-origin:125px 108px"/>
+        <path d="M83 130 L100 145 L117 130" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="cta-tagline" id="cta-tag">손짓이 언어가 됩니다</div>
+    <div class="cta-url" id="cta-url">haruki-lang.vercel.app</div>
+    <a href="/" class="cta-btn" id="cta-btn">지금 시작하기 →</a>
+  </div>
+
+  <!-- Progress bar -->
+  <div id="prog"></div>
+</div>
+
+<script>
+/* ─── Particles background ─── */
+const bgc = document.getElementById('bgc');
+bgc.width = 960; bgc.height = 540;
+const bctx = bgc.getContext('2d');
+const PTCLS = Array.from({length:60},()=>({
+  x:Math.random()*960, y:Math.random()*540,
+  vx:(Math.random()-0.5)*0.3, vy:(Math.random()-0.5)*0.3,
+  r:Math.random()*1.5+0.5, a:Math.random()
+}));
+function drawBg(){
+  bctx.clearRect(0,0,960,540);
+  PTCLS.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy;
+    if(p.x<0)p.x=960; if(p.x>960)p.x=0;
+    if(p.y<0)p.y=540; if(p.y>540)p.y=0;
+    bctx.beginPath();
+    bctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    bctx.fillStyle=`rgba(107,126,212,${p.a*0.4})`;
+    bctx.fill();
+  });
+  // subtle grid lines
+  bctx.strokeStyle='rgba(107,126,212,0.04)';
+  bctx.lineWidth=1;
+  for(let x=0;x<960;x+=80){bctx.beginPath();bctx.moveTo(x,0);bctx.lineTo(x,540);bctx.stroke()}
+  for(let y=0;y<540;y+=80){bctx.beginPath();bctx.moveTo(0,y);bctx.lineTo(960,y);bctx.stroke()}
+  requestAnimationFrame(drawBg);
+}
+drawBg();
+
+/* ─── Skeleton canvas (Scene 3) ─── */
+const camCvs = document.getElementById('camCanvas');
+const camCtx = camCvs.getContext('2d');
+camCvs.width=460; camCvs.height=336;
+
+// Skeleton keyframes: simplified pose + hand
+let skT = 0;
+function drawSkeleton(){
+  const w=camCvs.width, h=camCvs.height;
+  camCtx.clearRect(0,0,w,h);
+  // bg gradient
+  const grd=camCtx.createLinearGradient(0,0,0,h);
+  grd.addColorStop(0,'#0a0e1a'); grd.addColorStop(1,'#050810');
+  camCtx.fillStyle=grd; camCtx.fillRect(0,0,w,h);
+
+  skT += 0.02;
+  const sway = Math.sin(skT)*0.04;
+
+  // Pose landmarks (simplified human figure, center at w/2, h*0.35)
+  const cx=w/2, cy=h*0.35;
+  const scale=h*0.55;
+
+  // Key pose points
+  const nose  ={x:cx+sway*scale*0.5, y:cy-scale*0.42};
+  const lsh   ={x:cx-scale*0.18+sway*scale*0.1, y:cy-scale*0.22};
+  const rsh   ={x:cx+scale*0.18+sway*scale*0.1, y:cy-scale*0.22};
+  const le    ={x:cx-scale*0.28+sway*scale*0.2, y:cy-scale*0.05};
+  const re    ={x:cx+scale*0.24+sway*scale*0.05, y:cy};
+  const lw    ={x:cx-scale*0.3+Math.sin(skT*1.3)*scale*0.08, y:cy+scale*0.1+Math.cos(skT)*scale*0.06};
+  const rw    ={x:cx+scale*0.22+Math.sin(skT*0.9+1)*scale*0.12, y:cy-scale*0.05+Math.cos(skT*1.1)*scale*0.08};
+
+  // Draw connections
+  function line(a,b,col='rgba(107,126,212,0.6)',w=2){
+    camCtx.beginPath(); camCtx.moveTo(a.x,a.y); camCtx.lineTo(b.x,b.y);
+    camCtx.strokeStyle=col; camCtx.lineWidth=w; camCtx.stroke();
+  }
+  function dot(p,r=5,col='#6B7ED4'){
+    camCtx.beginPath(); camCtx.arc(p.x,p.y,r,0,Math.PI*2);
+    camCtx.fillStyle=col; camCtx.fill();
+    // glow
+    camCtx.beginPath(); camCtx.arc(p.x,p.y,r*2.5,0,Math.PI*2);
+    const g=camCtx.createRadialGradient(p.x,p.y,0,p.x,p.y,r*2.5);
+    g.addColorStop(0,col.replace(')',',0.3)').replace('rgb','rgba')); g.addColorStop(1,'transparent');
+    camCtx.fillStyle=g; camCtx.fill();
+  }
+
+  line(lsh,rsh); line(lsh,le); line(le,lw); line(rsh,re); line(re,rw);
+  line(lsh,{x:cx,y:cy+scale*0.1}); line(rsh,{x:cx,y:cy+scale*0.1});
+  line(nose,lsh,'rgba(107,126,212,0.3)'); line(nose,rsh,'rgba(107,126,212,0.3)');
+
+  // Hand landmarks on right wrist
+  const handPts=[];
+  const hscale=scale*0.18;
+  const fingers=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
+  // simple hand layout
+  const handBase=[
+    {x:0,y:0},
+    {x:-0.3,y:-0.3},{x:-0.25,y:-0.6},{x:-0.15,y:-0.85},{x:-0.05,y:-1.0},
+    {x:-0.1,y:-0.3},{x:-0.08,y:-0.65},{x:-0.05,y:-0.9},{x:0,y:-1.05},
+    {x:0.1,y:-0.28},{x:0.1,y:-0.62},{x:0.1,y:-0.87},{x:0.1,y:-1.02},
+    {x:0.25,y:-0.28},{x:0.26,y:-0.6},{x:0.25,y:-0.83},{x:0.24,y:-0.97},
+    {x:0.35,y:-0.2},{x:0.38,y:-0.48},{x:0.38,y:-0.68},{x:0.36,y:-0.84},
+  ];
+  const fingerSpread = Math.sin(skT*0.7)*0.15;
+  handBase.forEach((p,i)=>{
+    handPts.push({
+      x: rw.x + (p.x+fingerSpread*0.2)*hscale,
+      y: rw.y + p.y*hscale + Math.sin(skT*1.2+i*0.3)*2
+    });
+  });
+  fingers.forEach(f=>{
+    for(let i=0;i<f.length-1;i++){
+      line(handPts[f[i]],handPts[f[i+1]],'rgba(34,211,238,0.7)',1.5);
+    }
+  });
+  handPts.forEach((p,i)=>{
+    dot(p,i===0?4:2.5,'#22D3EE');
+  });
+
+  // Main dots
+  [nose,lsh,rsh,le,re,lw,rw].forEach(p=>dot(p,4,'#6B7ED4'));
+  dot(nose,5,'#a78bfa');
+
+  // Scanlines
+  camCtx.fillStyle='rgba(0,0,0,0.03)';
+  for(let y=0;y<h;y+=3){ camCtx.fillRect(0,y,w,1); }
+
+  // Corner markers
+  const cm=12,cg=4,cc='rgba(107,126,212,0.5)';
+  [[0,0],[w,0],[0,h],[w,h]].forEach(([cx2,cy2])=>{
+    const sx=cx2===0?1:-1, sy=cy2===0?1:-1;
+    camCtx.strokeStyle=cc; camCtx.lineWidth=2;
+    camCtx.beginPath(); camCtx.moveTo(cx2+sx*cg,cy2+sy*cg);
+    camCtx.lineTo(cx2+sx*(cg+cm),cy2+sy*cg);
+    camCtx.moveTo(cx2+sx*cg,cy2+sy*cg);
+    camCtx.lineTo(cx2+sx*cg,cy2+sy*(cg+cm));
+    camCtx.stroke();
+  });
+
+  requestAnimationFrame(drawSkeleton);
+}
+
+/* ─── Scene controller ─── */
+const SCENE_IDS = ['s1','s2','s3','s4','s5','s6'];
+const DURATIONS = [5000,4000,9000,7000,7000,5500];
+
+let curIdx=0, progTimer=null, progStart=0;
+const prog=document.getElementById('prog');
+
+function hideAll(){ SCENE_IDS.forEach(id=>document.getElementById(id).classList.remove('on')); }
+
+// Scene enter handlers
+const onEnter = {
+  s1(){
+    setTimeout(()=>document.getElementById('char1').classList.add('in'),100);
+    setTimeout(()=>document.getElementById('char1').classList.add('float'),800);
+    setTimeout(()=>document.getElementById('t1-title').classList.add('in'),500);
+    setTimeout(()=>document.getElementById('t1-sub').classList.add('in'),800);
+  },
+  s2(){
+    setTimeout(()=>document.getElementById('sp1').classList.add('in'),300);
+    setTimeout(()=>document.getElementById('sp2').classList.add('in'),600);
+    setTimeout(()=>document.getElementById('p-text').classList.add('in'),1000);
+    setTimeout(()=>document.getElementById('p-sub').classList.add('in'),1500);
+  },
+  s3(){
+    const shell=document.getElementById('app-shell');
+    setTimeout(()=>shell.classList.add('in'),200);
+    // Animate confidence bar
+    setTimeout(()=>{
+      document.getElementById('rec-word').textContent='안녕하세요';
+      document.getElementById('conf-fill').style.width='78%';
+      document.getElementById('conf-val').textContent='78%';
+      // Candidates
+      const cands=[['감사합니다','42%'],['도움','31%']];
+      const candsEl=document.getElementById('cands');
+      candsEl.innerHTML=cands.map(([w,p])=>`
+        <div class="cand">
+          <span>${w}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="cand-bar"><div class="cand-fill" style="width:${p}"></div></div>
+            <span style="width:28px;text-align:right">${p}</span>
+          </div>
+        </div>`).join('');
+    },1200);
+    // Words
+    const words=[['안녕하세요',1800],['감사합니다',3200],['도움',4800]];
+    const pillsEl=document.getElementById('word-pills');
+    pillsEl.innerHTML='';
+    words.forEach(([w,t])=>{
+      const pill=document.createElement('span');
+      pill.className='word-pill'; pill.textContent=w;
+      pillsEl.appendChild(pill);
+      setTimeout(()=>pill.classList.add('in'),t);
+    });
+    // AI sentence
+    setTimeout(()=>{
+      const sent=document.getElementById('ai-sent');
+      const txt=document.getElementById('ai-text');
+      sent.classList.add('in');
+      const full='안녕하세요, 도움을 주셔서 감사합니다.';
+      let i=0;
+      const typer=setInterval(()=>{
+        txt.textContent=full.slice(0,++i);
+        if(i>=full.length) clearInterval(typer);
+      },60);
+    },5500);
+    // Buf frames counter
+    let f=20;
+    const fInt=setInterval(()=>{
+      f=Math.min(75,(f+Math.random()*3)|0);
+      const el=document.getElementById('buf-frames');
+      if(el) el.textContent=f+'f';
+    },100);
+    setTimeout(()=>clearInterval(fInt),9000);
+    drawSkeleton();
+  },
+  s4(){
+    setTimeout(()=>document.getElementById('how-title').classList.add('in'),200);
+    [0,1,2,3].forEach(i=>{
+      setTimeout(()=>document.getElementById('step'+i).classList.add('in'),400+i*250);
+    });
+  },
+  s5(){
+    setTimeout(()=>document.getElementById('feat-title').classList.add('in'),200);
+    [0,1,2].forEach(i=>{
+      setTimeout(()=>document.getElementById('fc'+i).classList.add('in'),400+i*180);
+    });
+  },
+  s6(){
+    const char=document.getElementById('cta-char');
+    setTimeout(()=>{char.classList.add('in'); setTimeout(()=>char.classList.add('float'),600);},200);
+    setTimeout(()=>document.getElementById('cta-tag').classList.add('in'),400);
+    setTimeout(()=>document.getElementById('cta-url').classList.add('in'),800);
+    setTimeout(()=>document.getElementById('cta-btn').classList.add('in'),1100);
+  },
+};
+
+// Clean up handlers (reset states)
+const onLeave = {
+  s1(){
+    const c=document.getElementById('char1');
+    c.classList.remove('in','float');
+    document.getElementById('t1-title').classList.remove('in');
+    document.getElementById('t1-sub').classList.remove('in');
+  },
+  s2(){
+    ['sp1','sp2','p-text','p-sub'].forEach(id=>document.getElementById(id).classList.remove('in'));
+  },
+  s3(){
+    document.getElementById('app-shell').classList.remove('in');
+    document.getElementById('rec-word').textContent='—';
+    document.getElementById('conf-fill').style.width='0%';
+    document.getElementById('conf-val').textContent='0%';
+    document.getElementById('cands').innerHTML='';
+    document.getElementById('word-pills').innerHTML='';
+    document.getElementById('ai-sent').classList.remove('in');
+    document.getElementById('ai-text').textContent='';
+  },
+  s4(){
+    document.getElementById('how-title').classList.remove('in');
+    [0,1,2,3].forEach(i=>document.getElementById('step'+i).classList.remove('in'));
+  },
+  s5(){
+    document.getElementById('feat-title').classList.remove('in');
+    [0,1,2].forEach(i=>document.getElementById('fc'+i).classList.remove('in'));
+  },
+  s6(){
+    const c=document.getElementById('cta-char');
+    c.classList.remove('in','float');
+    ['cta-tag','cta-url','cta-btn'].forEach(id=>document.getElementById(id).classList.remove('in'));
+  },
+};
+
+function goTo(idx){
+  const prevId=SCENE_IDS[curIdx];
+  onLeave[prevId]?.();
+  hideAll();
+  curIdx=idx%SCENE_IDS.length;
+  const id=SCENE_IDS[curIdx];
+  document.getElementById(id).classList.add('on');
+  onEnter[id]?.();
+  // Progress bar
+  prog.style.transition='none'; prog.style.width='0%';
+  requestAnimationFrame(()=>{
+    prog.style.transition=`width ${DURATIONS[curIdx]}ms linear`;
+    prog.style.width='100%';
+  });
+  if(progTimer) clearTimeout(progTimer);
+  progTimer=setTimeout(()=>goTo(curIdx+1), DURATIONS[curIdx]);
+}
+
+// Start
+goTo(0);
+</script>
+</body>
+</html>
