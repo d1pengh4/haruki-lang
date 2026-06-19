@@ -448,6 +448,11 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     setRecognizedWords(prev => prev.filter((_, i) => i !== index));
   };
 
+  const editWord = (index: number, newWord: string): void => {
+    if (!newWord.trim()) return;
+    setRecognizedWords(prev => prev.map((w, i) => i === index ? newWord.trim() : w));
+  };
+
   const copySentence = (): void => {
     navigator.clipboard.writeText(recognizedWords.join(' '));
   };
@@ -468,6 +473,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         onCopy={copySentence}
         onClear={clearSentence}
         onDeleteWord={deleteWord}
+        onEditWord={editWord}
         onSpeakSentence={() => speak(naturalSentence)}
       />
       {/* 실시간 인식 카드 */}
@@ -497,108 +503,114 @@ interface RecognizedSentenceCardProps {
   onCopy: () => void;
   onClear: () => void;
   onDeleteWord: (index: number) => void;
+  onEditWord: (index: number, newWord: string) => void;
   onSpeakSentence: () => void;
 }
 
 const RecognizedSentenceCard = ({
-  recognizedWords, naturalSentence, isConverting, isTTSEnabled, onTTSToggle, onCopy, onClear, onDeleteWord, onSpeakSentence,
-}: RecognizedSentenceCardProps) => (
-  <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 overflow-hidden shadow-xl">
-    {/* 헤더: 액션 버튼들 */}
-    <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-white/5">
-      <div className="flex items-center gap-1.5">
-        <Sparkles className="w-4 h-4 text-cyan-400" />
-        <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">인식된 문장</span>
-      </div>
-      <div className="flex items-center gap-1">
-        {/* TTS 토글 */}
-        <button
-          title={isTTSEnabled ? '음성 끄기' : '음성 켜기'}
-          onClick={onTTSToggle}
-          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-        >
-          {isTTSEnabled
-            ? <Volume2 className="w-4 h-4 text-cyan-400" />
-            : <VolumeX className="w-4 h-4 text-white/30" />
-          }
-        </button>
-        {/* 문장 읽기 버튼 (문장 있을 때만) */}
-        {naturalSentence && (
-          <button
-            title="문장 읽기"
-            onClick={onSpeakSentence}
-            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-          >
-            <Volume2 className="w-4 h-4 text-emerald-400" />
+  recognizedWords, naturalSentence, isConverting, isTTSEnabled,
+  onTTSToggle, onCopy, onClear, onDeleteWord, onEditWord, onSpeakSentence,
+}: RecognizedSentenceCardProps) => {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+
+  const confirmEdit = (idx: number, value: string) => {
+    onEditWord(idx, value);
+    setEditingIdx(null);
+  };
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 overflow-hidden shadow-xl">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-white/5">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-cyan-400" />
+          <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">인식된 문장</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button title={isTTSEnabled ? '음성 끄기' : '음성 켜기'} onClick={onTTSToggle} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+            {isTTSEnabled ? <Volume2 className="w-4 h-4 text-cyan-400" /> : <VolumeX className="w-4 h-4 text-white/30" />}
           </button>
-        )}
-        {recognizedWords.length > 0 && (
+          {naturalSentence && (
+            <button title="문장 읽기" onClick={onSpeakSentence} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+              <Volume2 className="w-4 h-4 text-emerald-400" />
+            </button>
+          )}
+          {recognizedWords.length > 0 && (
+            <>
+              <button title="복사" onClick={onCopy} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+                <Copy className="w-4 h-4 text-white/50 hover:text-white/80" />
+              </button>
+              <button title="초기화" onClick={onClear} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+                <Trash2 className="w-4 h-4 text-white/50 hover:text-red-400" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {recognizedWords.length === 0 ? (
+          <div className="text-center py-6">
+            <p className="text-white/20 text-sm">수화를 시작하면 여기에 표시됩니다</p>
+          </div>
+        ) : (
           <>
-            <button
-              title="복사"
-              onClick={onCopy}
-              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-            >
-              <Copy className="w-4 h-4 text-white/50 hover:text-white/80" />
-            </button>
-            <button
-              title="초기화"
-              onClick={onClear}
-              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-            >
-              <Trash2 className="w-4 h-4 text-white/50 hover:text-red-400" />
-            </button>
+            {/* 인식된 단어 pill 목록 — 더블클릭으로 수정 */}
+            <div className="flex flex-wrap gap-2 min-h-[36px]">
+              {recognizedWords.map((word, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-white/10 border border-white/15 rounded-full text-sm text-white/80 hover:border-white/30 transition-colors group"
+                >
+                  {editingIdx === idx ? (
+                    <input
+                      autoFocus
+                      defaultValue={word}
+                      className="bg-transparent outline-none text-sm text-white min-w-[2ch]"
+                      style={{ width: `${Math.max(word.length, 2)}ch` }}
+                      onBlur={e  => confirmEdit(idx, e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter')  confirmEdit(idx, e.currentTarget.value);
+                        if (e.key === 'Escape') setEditingIdx(null);
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={() => setEditingIdx(idx)}
+                      title="더블클릭하여 수정"
+                      className="cursor-text"
+                    >
+                      {word}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => { if (editingIdx === idx) setEditingIdx(null); onDeleteWord(idx); }}
+                    className="ml-0.5 text-white/30 hover:text-red-400 transition-colors leading-none"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            {/* AI 변환 문장 */}
+            <div className="rounded-xl p-3 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-[11px] text-cyan-400/80 font-semibold uppercase tracking-wider">AI 문장</span>
+                {isConverting && <span className="text-[10px] text-cyan-400/50 animate-pulse">변환 중...</span>}
+              </div>
+              <p className="text-xl font-bold text-white leading-snug">
+                {naturalSentence || <span className="text-white/30 font-normal text-base">변환 중...</span>}
+              </p>
+            </div>
           </>
         )}
       </div>
     </div>
-
-    <div className="p-4 space-y-3">
-      {recognizedWords.length === 0 ? (
-        /* 빈 상태 */
-        <div className="text-center py-6">
-          <p className="text-white/20 text-sm">수화를 시작하면 여기에 표시됩니다</p>
-        </div>
-      ) : (
-        <>
-          {/* 인식된 단어 pill 목록 */}
-          <div className="flex flex-wrap gap-2 min-h-[36px]">
-            {recognizedWords.map((word, idx) => (
-              <span
-                key={idx}
-                className="inline-flex items-center gap-1 px-3 py-1 bg-white/10 border border-white/15 rounded-full text-sm text-white/80 hover:border-white/30 transition-colors group"
-              >
-                {word}
-                <button
-                  onClick={() => onDeleteWord(idx)}
-                  className="ml-0.5 text-white/30 hover:text-red-400 transition-colors leading-none"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-
-          {/* AI 변환 문장 */}
-          <div className="rounded-xl p-3 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="text-[11px] text-cyan-400/80 font-semibold uppercase tracking-wider">AI 문장</span>
-              {isConverting && (
-                <span className="text-[10px] text-cyan-400/50 animate-pulse">변환 중...</span>
-              )}
-            </div>
-            <p className="text-xl font-bold text-white leading-snug">
-              {naturalSentence || (
-                <span className="text-white/30 font-normal text-base">변환 중...</span>
-              )}
-            </p>
-          </div>
-        </>
-      )}
-    </div>
-  </div>
-);
+  );
+};
 
 // 신뢰도에 따른 색상 반환 헬퍼
 const getConfidenceColor = (similarity: number): string => {

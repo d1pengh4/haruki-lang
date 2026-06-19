@@ -156,11 +156,11 @@ export default function SignLanguageApp() {
           <VoiceMode />
         ) : (
           <>
-            {/* 웹캠 + 인식 패널 (70/30 분할) */}
-            <div className="flex flex-1 gap-0 overflow-hidden min-h-0">
+            {/* 웹캠 + 인식 패널 — 모바일: 세로, 데스크톱: 가로 70/30 */}
+            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0">
 
-              {/* 왼쪽: 웹캠 (70%) — 학습 모드 다이얼로그가 열리면 pause */}
-              <div className="flex-[7] min-w-0 p-4 pr-2">
+              {/* 웹캠 — 모바일: 고정 높이, 데스크톱: flex-[7] */}
+              <div className="h-[48vw] lg:h-auto lg:flex-[7] min-w-0 p-3 lg:p-4 lg:pr-2 shrink-0 lg:shrink">
                 <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/50">
                   <WebcamCapture
                     onLandmarksDetected={setCurrentLandmarks}
@@ -170,8 +170,8 @@ export default function SignLanguageApp() {
                 </div>
               </div>
 
-              {/* 오른쪽: 인식 패널 (30%) */}
-              <div className="flex-[3] min-w-0 p-4 pl-2 flex flex-col min-h-0">
+              {/* 인식 패널 — 모바일: flex-1 스크롤, 데스크톱: flex-[3] */}
+              <div className="lg:flex-[3] min-w-0 p-3 lg:p-4 lg:pl-2 flex flex-col flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
                 <RecognitionMode
                   currentLandmarks={currentLandmarks}
                   signs={signsForRecognition}
@@ -179,13 +179,14 @@ export default function SignLanguageApp() {
               </div>
             </div>
 
-            {/* ── 하단: 저장된 수화 가로 스크롤 ── */}
+            {/* 하단: 저장된 수화 가로 스크롤 */}
             <div className="shrink-0 border-t border-white/5 bg-black/30 backdrop-blur-sm">
               <SignList
                 signs={uniqueSignsMeta}
                 isLoading={isLoading}
                 error={error as Error | null}
                 onDeleteSign={(name) => deleteByNameMutation.mutate(name)}
+                onImported={invalidateSigns}
               />
             </div>
           </>

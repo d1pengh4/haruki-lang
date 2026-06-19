@@ -10,4 +10,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor':    ['react', 'react-dom'],
+          'query-vendor':    ['@tanstack/react-query'],
+          'supabase-vendor': ['@supabase/supabase-js'],
+          'hf-vendor':       ['@huggingface/inference'],
+        },
+      },
+    },
+  },
 })
