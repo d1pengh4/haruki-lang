@@ -46,10 +46,11 @@ interface NeutralPoseInput {
 // P0-1: 사전 필터용 부호 평균 특징
 interface SignMean { combined: number[] | null }
 
-// P0-1: 빠른 코사인 유사도 (pre-filter용)
+// P0-1: 빠른 코사인 유사도 (pre-filter용, min-length로 구버전/신버전 혼용 호환)
 function quickCos(a: number[], b: number[]): number {
   let d = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
   return (na > 0 && nb > 0) ? d / Math.sqrt(na * nb) : 0;
 }
 
@@ -82,26 +83,32 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
     for (const sign of signs) {
       const seqs = getSignSequences(sign);
       if (!seqs.length) { means.set(sign.id, { combined: null }); continue; }
-      const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0), poseAcc = new Array(24).fill(0);
-      let lhN = 0, rhN = 0, poseN = 0;
+      const lhAcc = new Array(36).fill(0), rhAcc = new Array(36).fill(0);
+      const poseAcc = new Array(24).fill(0), ihAcc = new Array(4).fill(0);
+      let lhN = 0, rhN = 0, poseN = 0, ihN = 0;
       for (const seq of seqs) {
         for (const f of seq) {
-          if (f.left_hand_features?.length === 33) {
-            f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
+          if (f.left_hand_features && f.left_hand_features.length >= 33) {
+            f.left_hand_features.forEach((v, i) => { if (i < 36) lhAcc[i] += v; }); lhN++;
           }
-          if (f.right_hand_features?.length === 33) {
-            f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
+          if (f.right_hand_features && f.right_hand_features.length >= 33) {
+            f.right_hand_features.forEach((v, i) => { if (i < 36) rhAcc[i] += v; }); rhN++;
           }
           if (f.pose_features?.length === 24) {
             f.pose_features.forEach((v, i) => poseAcc[i] += v); poseN++;
           }
+          if (f.inter_hand_features?.length === 4) {
+            f.inter_hand_features.forEach((v, i) => ihAcc[i] += v); ihN++;
+          }
         }
       }
-      const lh   = lhN   > 0 ? lhAcc.map(v => v / lhN)     : null;
-      const rh   = rhN   > 0 ? rhAcc.map(v => v / rhN)     : null;
+      const lh   = lhN   > 0 ? lhAcc.map(v => v / lhN)   : null;
+      const rh   = rhN   > 0 ? rhAcc.map(v => v / rhN)   : null;
       const pose = poseN > 0 ? poseAcc.map(v => v / poseN) : null;
+      const ih   = ihN   > 0 ? ihAcc.map(v => v / ihN)   : null;
       const combined = (lh || rh || pose)
-        ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0)), ...(pose ?? new Array(24).fill(0))]
+        ? [...(lh ?? new Array(36).fill(0)), ...(rh ?? new Array(36).fill(0)),
+           ...(pose ?? new Array(24).fill(0)), ...(ih ?? new Array(4).fill(0))]
         : null;
       means.set(sign.id, { combined });
     }
@@ -136,6 +143,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       left_hand_features: currentLandmarks.leftHandFeatures,
       right_hand_features: currentLandmarks.rightHandFeatures,
       pose_features: currentLandmarks.poseFeatures,
+      inter_hand_features: currentLandmarks.interHandFeatures ?? null,
     };
 
     motionBufferRef.current.push(frameData);
@@ -325,66 +333,110 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         ? RECOGNITION_PARAMS.RECOGNITION_THRESHOLD + 2
         : RECOGNITION_PARAMS.RECOGNITION_THRESHOLD;
 
+      // 버퍼 평균 특징 계산 (손 36D + pose 24D + inter_hand 4D = 100D)
+      // — 사전 필터 + 정적 수화 패스트패스 양쪽에서 사용
+      const bLhAcc = new Array(36).fill(0), bRhAcc = new Array(36).fill(0);
+      const bPoseAcc = new Array(24).fill(0), bIhAcc = new Array(4).fill(0);
+      let bLhN = 0, bRhN = 0, bPoseN = 0, bIhN = 0;
+      for (const f of cleanBuffer) {
+        if (f.left_hand_features && f.left_hand_features.length >= 33) {
+          f.left_hand_features.forEach((v, i) => { if (i < 36) bLhAcc[i] += v; }); bLhN++;
+        }
+        if (f.right_hand_features && f.right_hand_features.length >= 33) {
+          f.right_hand_features.forEach((v, i) => { if (i < 36) bRhAcc[i] += v; }); bRhN++;
+        }
+        if (f.pose_features?.length === 24) {
+          f.pose_features.forEach((v, i) => bPoseAcc[i] += v); bPoseN++;
+        }
+        if (f.inter_hand_features?.length === 4) {
+          f.inter_hand_features.forEach((v, i) => bIhAcc[i] += v); bIhN++;
+        }
+      }
+      const bLh   = bLhN   > 0 ? bLhAcc.map(v => v / bLhN)   : null;
+      const bRh   = bRhN   > 0 ? bRhAcc.map(v => v / bRhN)   : null;
+      const bPose = bPoseN > 0 ? bPoseAcc.map(v => v / bPoseN) : null;
+      const bIh   = bIhN   > 0 ? bIhAcc.map(v => v / bIhN)   : null;
+      const bufCombined = (bLh || bRh || bPose)
+        ? [...(bLh ?? new Array(36).fill(0)), ...(bRh ?? new Array(36).fill(0)),
+           ...(bPose ?? new Array(24).fill(0)), ...(bIh ?? new Array(4).fill(0))]
+        : null;
+
       // P0-1: 코사인 사전 필터 — signs > 12개일 때만 적용
       const PRE_FILTER_K = 12;
       let candidateSigns = signs;
-      if (signs.length > PRE_FILTER_K) {
-        // 버퍼 평균 특징 계산 (손 + pose 포함)
-        const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0), poseAcc = new Array(24).fill(0);
-        let lhN = 0, rhN = 0, poseN = 0;
-        for (const f of cleanBuffer) {
-          if (f.left_hand_features?.length === 33) {
-            f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
-          }
-          if (f.right_hand_features?.length === 33) {
-            f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
-          }
-          if (f.pose_features?.length === 24) {
-            f.pose_features.forEach((v, i) => poseAcc[i] += v); poseN++;
-          }
-        }
-        const lh   = lhN   > 0 ? lhAcc.map(v => v / lhN)     : null;
-        const rh   = rhN   > 0 ? rhAcc.map(v => v / rhN)     : null;
-        const pose = poseN > 0 ? poseAcc.map(v => v / poseN) : null;
-        const bufCombined = (lh || rh || pose)
-          ? [...(lh ?? new Array(33).fill(0)), ...(rh ?? new Array(33).fill(0)), ...(pose ?? new Array(24).fill(0))]
-          : null;
-        if (bufCombined) {
-          candidateSigns = signs
-            .map(sign => {
-              const mean = signMeansRef.current.get(sign.id)?.combined;
-              // 버그 수정: mean 없으면 0이 아닌 0.5 (중간 순위 배정)
-              return { sign, preScore: mean ? quickCos(bufCombined, mean) : 0.5 };
-            })
-            .sort((a, b) => b.preScore - a.preScore)
-            .slice(0, PRE_FILTER_K)
-            .map(s => s.sign);
-        }
+      if (signs.length > PRE_FILTER_K && bufCombined) {
+        candidateSigns = signs
+          .map(sign => {
+            const mean = signMeansRef.current.get(sign.id)?.combined;
+            // 버그 수정: mean 없으면 0이 아닌 0.5 (중간 순위 배정)
+            return { sign, preScore: mean ? quickCos(bufCombined, mean) : 0.5 };
+          })
+          .sort((a, b) => b.preScore - a.preScore)
+          .slice(0, PRE_FILTER_K)
+          .map(s => s.sign);
       }
 
-      // DTW 스코어링: 리샘플링(속도 정규화) + SDTW(최적 부분구간)
-      // 두 방법의 점수를 앙상블하여 우연한 고점수 방지
-      const results = candidateSigns
-        .map(sign => {
-          const sequences = getSignSequences(sign);
-          if (sequences.length === 0) return null;
-          const scores = sequences.map(seq => {
-            if (seq.length < 2) return 0;
-            // 1) 리샘플링: 버퍼를 시퀀스 길이에 맞게 속도 정규화
-            const resampledBuffer = resampleSequence(cleanBuffer, Math.max(6, seq.length));
-            const score1 = calculateSubsequenceDTW(resampledBuffer, seq);
-            // 2) 원본 SDTW: 최적 부분 구간 탐색 (속도 차이에 유연)
-            const score2 = calculateSubsequenceDTW(cleanBuffer, seq);
-            // 더 높은 쪽 70% + 더 낮은 쪽 30% — 극단적 행운 점수 완화
-            const hi = Math.max(score1, score2);
-            const lo = Math.min(score1, score2);
-            return hi * 0.7 + lo * 0.3;
-          });
-          // 최고 점수 사용 (앙상블은 진짜 매칭 점수를 불필요하게 낮춤)
-          const best = Math.max(...scores);
-          return { sign, similarity: best * 100 };
-        })
-        .filter(Boolean) as { sign: SignLanguage; similarity: number }[];
+      // 정적 수화 패스트패스: DTW 대신 버퍼 평균 코사인 매칭 (빠르고 정적 모양에 정확)
+      let results: { sign: SignLanguage; similarity: number }[];
+      if (isStatic && bufCombined) {
+        // 버퍼 마지막 20프레임 평균 계산
+        const staticWindow = cleanBuffer.slice(-20);
+        const slhAcc = new Array(36).fill(0), srhAcc = new Array(36).fill(0);
+        const sposeAcc = new Array(24).fill(0), sihAcc = new Array(4).fill(0);
+        let slhN = 0, srhN = 0, sposeN = 0, sihN = 0;
+        for (const f of staticWindow) {
+          if (f.left_hand_features && f.left_hand_features.length >= 33) {
+            f.left_hand_features.forEach((v, i) => { if (i < 36) slhAcc[i] += v; }); slhN++;
+          }
+          if (f.right_hand_features && f.right_hand_features.length >= 33) {
+            f.right_hand_features.forEach((v, i) => { if (i < 36) srhAcc[i] += v; }); srhN++;
+          }
+          if (f.pose_features?.length === 24) {
+            f.pose_features.forEach((v, i) => sposeAcc[i] += v); sposeN++;
+          }
+          if (f.inter_hand_features?.length === 4) {
+            f.inter_hand_features.forEach((v, i) => sihAcc[i] += v); sihN++;
+          }
+        }
+        const slh   = slhN   > 0 ? slhAcc.map(v => v / slhN)   : new Array(36).fill(0);
+        const srh   = srhN   > 0 ? srhAcc.map(v => v / srhN)   : new Array(36).fill(0);
+        const spose = sposeN > 0 ? sposeAcc.map(v => v / sposeN) : new Array(24).fill(0);
+        const sih   = sihN   > 0 ? sihAcc.map(v => v / sihN)   : new Array(4).fill(0);
+        const staticMean = [...slh, ...srh, ...spose, ...sih];
+
+        results = candidateSigns
+          .map(sign => {
+            const mean = signMeansRef.current.get(sign.id)?.combined;
+            if (!mean) return null;
+            const cos = quickCos(staticMean, mean);
+            return { sign, similarity: cos * 100 };
+          })
+          .filter(Boolean) as { sign: SignLanguage; similarity: number }[];
+      } else {
+        // DTW 스코어링: 리샘플링(속도 정규화) + SDTW(최적 부분구간)
+        // 두 방법의 점수를 앙상블하여 우연한 고점수 방지
+        results = candidateSigns
+          .map(sign => {
+            const sequences = getSignSequences(sign);
+            if (sequences.length === 0) return null;
+            const scores = sequences.map(seq => {
+              if (seq.length < 2) return 0;
+              // 1) 리샘플링: 버퍼를 시퀀스 길이에 맞게 속도 정규화
+              const resampledBuffer = resampleSequence(cleanBuffer, Math.max(6, seq.length));
+              const score1 = calculateSubsequenceDTW(resampledBuffer, seq);
+              // 2) 원본 SDTW: 최적 부분 구간 탐색 (속도 차이에 유연)
+              const score2 = calculateSubsequenceDTW(cleanBuffer, seq);
+              // 더 높은 쪽 70% + 더 낮은 쪽 30% — 극단적 행운 점수 완화
+              const hi = Math.max(score1, score2);
+              const lo = Math.min(score1, score2);
+              return hi * 0.7 + lo * 0.3;
+            });
+            // 최고 점수 사용 (앙상블은 진짜 매칭 점수를 불필요하게 낮춤)
+            const best = Math.max(...scores);
+            return { sign, similarity: best * 100 };
+          })
+          .filter(Boolean) as { sign: SignLanguage; similarity: number }[];
+      }
 
       results.sort((a, b) => b.similarity - a.similarity);
 

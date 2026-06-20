@@ -42,6 +42,32 @@ function makeSpeedVariant(frames: LandmarkFrame[], ratio: number): LandmarkFrame
     left_hand_features: f.left_hand_features,
     right_hand_features: f.right_hand_features,
     pose_features: f.pose_features,
+    inter_hand_features: f.inter_hand_features ?? null,
+  }));
+}
+
+// 노이즈 증강: 특징 벡터에 가우시안 노이즈 추가 → 다양한 각도·속도 일반화
+function gaussianNoise(stddev: number): number {
+  // Box-Muller transform
+  const u1 = Math.random(), u2 = Math.random();
+  return stddev * Math.sqrt(-2 * Math.log(Math.max(u1, 1e-10))) * Math.cos(2 * Math.PI * u2);
+}
+
+function makeNoisyVariant(frames: LandmarkFrame[]): LandmarkFrame[] {
+  return frames.map(f => ({
+    ...f,
+    left_hand_features: f.left_hand_features
+      ? f.left_hand_features.map(v => v + gaussianNoise(0.008))
+      : null,
+    right_hand_features: f.right_hand_features
+      ? f.right_hand_features.map(v => v + gaussianNoise(0.008))
+      : null,
+    pose_features: f.pose_features
+      ? f.pose_features.map(v => v + gaussianNoise(0.004))
+      : null,
+    inter_hand_features: f.inter_hand_features
+      ? f.inter_hand_features.map(v => v + gaussianNoise(0.004))
+      : null,
   }));
 }
 
@@ -203,6 +229,7 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
       left_hand_features: currentLandmarks.leftHandFeatures ?? null,
       right_hand_features: currentLandmarks.rightHandFeatures ?? null,
       pose_features: currentLandmarks.poseFeatures ?? null,
+      inter_hand_features: currentLandmarks.interHandFeatures ?? null,
     };
     recordingFramesRef.current.push(frame);
 
@@ -243,7 +270,7 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
       return;
     }
 
-    // 각 테이크에 좌우반전 + 속도 변형(0.75x, 1.25x) 증강 추가
+    // 각 테이크에 좌우반전 + 속도 변형(0.75x, 1.25x) + 노이즈 증강 추가
     const allSequences: LandmarkFrame[][] = [];
     for (const take of takes) {
       allSequences.push(take.frames);
@@ -252,6 +279,9 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
       if (take.durationSec >= 0.8) {
         allSequences.push(makeSpeedVariant(take.frames, 0.75));
         allSequences.push(makeSpeedVariant(take.frames, 1.25));
+        // 노이즈 증강: 각도·위치 미세 변화 시뮬레이션
+        allSequences.push(makeNoisyVariant(take.frames));
+        allSequences.push(makeNoisyVariant(flipSequence(take.frames)));
       }
     }
 
