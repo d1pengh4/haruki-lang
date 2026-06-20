@@ -4,6 +4,7 @@ import {
   extractHandFeatures,
   extractFaceFeatures,
   extractPoseFeatures,
+  extractInterHandFeatures,
   flattenHandFeatures,
   type Landmark
 } from '@/lib/featureExtraction';
@@ -166,6 +167,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
     const rightHandFeatures = rightHandRaw ? flattenHandFeatures(rightHandRaw) : null;
     const faceFeatures = results.faceLandmarks ? extractFaceFeatures(results.faceLandmarks) : null;
     const poseFeatures = results.poseLandmarks ? extractPoseFeatures(results.poseLandmarks) : null;
+    const interHandFeatures = results.poseLandmarks ? extractInterHandFeatures(results.poseLandmarks) : null;
 
     if (onLandmarksDetected) {
       onLandmarksDetected({
@@ -177,6 +179,7 @@ export default function WebcamCapture({ onLandmarksDetected, showLandmarks = tru
         rightHandFeatures,
         face: faceFeatures,
         poseFeatures,
+        interHandFeatures,
       });
     }
 

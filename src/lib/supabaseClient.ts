@@ -68,6 +68,7 @@ export interface LandmarkFrame {
   left_hand_features: number[] | null
   right_hand_features: number[] | null
   pose_features: number[] | null
+  inter_hand_features?: number[] | null // 양손 상호작용 (선택, 구버전 호환)
 }
 
 export interface LandmarksDetected {
@@ -79,6 +80,7 @@ export interface LandmarksDetected {
   leftHandFeatures: number[] | null
   rightHandFeatures: number[] | null
   poseFeatures: number[] | null
+  interHandFeatures?: number[] | null // 양손 상호작용 (선택)
 }
 
 export interface Landmark {

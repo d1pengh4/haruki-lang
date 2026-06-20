@@ -28,6 +28,9 @@ export interface HandFeatures {
 
   // 5. 손가락 굽힘 각도 (5개)
   fingerBendAngles: number[];
+
+  // 6. 손바닥 법선 벡터 (3개) — 손바닥이 향하는 방향
+  palmOrientation: [number, number, number];
 }
 
 /**
@@ -74,6 +77,25 @@ function calculateAngle(p1: Landmark, p2: Landmark, p3: Landmark): number {
 
   const cosAngle = Math.max(-1, Math.min(1, dot / (len1 * len2)));
   return Math.acos(cosAngle);
+}
+
+/**
+ * 손바닥 법선 벡터 계산 (정규화된 3D 단위 벡터)
+ * 손목(0)→검지MCP(5), 손목(0)→새끼MCP(17) 벡터의 외적
+ * — 손바닥이 어느 방향을 향하는지 인코딩 (앞/뒤/위/아래)
+ */
+function getPalmNormal(handLandmarks: Landmark[]): [number, number, number] {
+  const w = handLandmarks[0];
+  const idx = handLandmarks[5];
+  const pky = handLandmarks[17];
+  const v1 = { x: idx.x - w.x, y: idx.y - w.y, z: idx.z - w.z };
+  const v2 = { x: pky.x - w.x, y: pky.y - w.y, z: pky.z - w.z };
+  const nx = v1.y * v2.z - v1.z * v2.y;
+  const ny = v1.z * v2.x - v1.x * v2.z;
+  const nz = v1.x * v2.y - v1.y * v2.x;
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (len < 1e-9) return [0, 0, 0];
+  return [nx / len, ny / len, nz / len];
 }
 
 /**
@@ -190,7 +212,10 @@ export function extractHandFeatures(handLandmarks: Landmark[]): HandFeatures | n
     calculateAngle(handLandmarks[18], handLandmarks[19], handLandmarks[20])  // 새끼: PIP-DIP-TIP
   ];
 
-  return { fingerExtensions, fingerAngles, fingerTipDistances, handShapeRatios, fingerBendAngles };
+  // 6. 손바닥 법선 벡터 (3개) — 손바닥 방향
+  const palmOrientation = getPalmNormal(handLandmarks);
+
+  return { fingerExtensions, fingerAngles, fingerTipDistances, handShapeRatios, fingerBendAngles, palmOrientation };
 }
 
 /**
@@ -463,13 +488,14 @@ export function extractPoseFeatures(poseLandmarks: Landmark[]): number[] | null 
  * @returns 0~1 (1에 가까울수록 유사)
  */
 export function calculateFeatureSimilarity(features1: number[], features2: number[]): number {
-  if (!features1 || !features2 || features1.length !== features2.length) return 0;
+  if (!features1 || !features2 || features1.length === 0 || features2.length === 0) return 0;
+  const len = Math.min(features1.length, features2.length); // 구버전(33D)/신버전(36D) 혼용 호환
 
   let dotProduct = 0;
   let norm1 = 0;
   let norm2 = 0;
 
-  for (let i = 0; i < features1.length; i++) {
+  for (let i = 0; i < len; i++) {
     dotProduct += features1[i] * features2[i];
     norm1 += features1[i] * features1[i];
     norm2 += features2[i] * features2[i];
@@ -482,7 +508,7 @@ export function calculateFeatureSimilarity(features1: number[], features2: numbe
 }
 
 /**
- * 손 특징을 평탄화된 배열로 변환 (33차원)
+ * 손 특징을 평탄화된 배열로 변환 (36차원)
  */
 export function flattenHandFeatures(features: HandFeatures): number[] {
   return [
@@ -490,8 +516,29 @@ export function flattenHandFeatures(features: HandFeatures): number[] {
     ...features.fingerAngles,         // 10
     ...features.fingerTipDistances,   // 10
     ...features.handShapeRatios,      // 3
-    ...features.fingerBendAngles      // 5
-  ]; // 총 33개
+    ...features.fingerBendAngles,     // 5
+    ...features.palmOrientation,      // 3 ← 손바닥 방향
+  ]; // 총 36개
+}
+
+/**
+ * 양손 상호작용 특징 추출 (4차원)
+ * 포즈 손목 위치 기반: [dx, dy, dist, angle] — 어깨 너비로 정규화
+ * 두 손의 상대적 위치 관계를 인코딩 (양손 수화 구별 핵심)
+ */
+export function extractInterHandFeatures(poseLandmarks: Landmark[]): number[] | null {
+  if (!poseLandmarks || poseLandmarks.length < 17) return null;
+  const lw = poseLandmarks[15]; // 왼손목
+  const rw = poseLandmarks[16]; // 오른손목
+  const ls = poseLandmarks[11];
+  const rs = poseLandmarks[12];
+  const shoulderWidth = euclideanDistance(ls, rs);
+  if (shoulderWidth < 0.001) return null;
+  const dx    = (rw.x - lw.x) / shoulderWidth;
+  const dy    = (rw.y - lw.y) / shoulderWidth;
+  const dist  = Math.sqrt(dx * dx + dy * dy);
+  const angle = Math.atan2(dy, dx);
+  return [dx, dy, dist, angle];
 }
 
 export interface FrameFeatures {
@@ -499,6 +546,7 @@ export interface FrameFeatures {
   right_hand_features: number[] | null;
   face: number[] | null;
   pose_features: number[] | null;
+  inter_hand_features?: number[] | null; // 양손 상호작용 (선택, 구버전 호환)
 }
 
 // LandmarkFrame을 featureExtraction에서도 쓰기 위한 최소 인터페이스
@@ -531,9 +579,10 @@ export function trimSilence<T extends FrameFeatures>(
       const v = a.reduce((s, val, j) => s + Math.abs(val - (b[j] ?? 0)), 0) / a.length;
       total += v * w; count += w;
     };
-    calcVar(prev.right_hand_features, curr.right_hand_features);
-    calcVar(prev.left_hand_features, curr.left_hand_features);
-    calcVar(prev.pose_features, curr.pose_features, 0.3);
+    calcVar(prev.right_hand_features,          curr.right_hand_features);
+    calcVar(prev.left_hand_features,           curr.left_hand_features);
+    calcVar(prev.pose_features,                curr.pose_features,                0.3);
+    calcVar(prev.inter_hand_features ?? null,  curr.inter_hand_features ?? null,  0.5);
     variances.push(count > 0 ? total / count : 0);
   }
 
@@ -615,15 +664,30 @@ export function flipLandmarkFrame<T extends MinimalLandmarkFrame>(frame: T): T {
   const mirrorLandmarks = (lms: MinimalLandmarkFrame['left_hand']) =>
     lms ? lms.map(lm => ({ ...lm, x: 1 - lm.x })) : null;
 
+  // 손바닥 법선 x 성분 반전 (수평 미러 시 nx만 부호 변경)
+  const flipHandOrientation = (f: number[] | null): number[] | null => {
+    if (!f || f.length < 36) return f;
+    const r = [...f];
+    r[33] = -f[33]; // palm normal nx → -nx
+    return r;
+  };
+
+  // 양손 상호작용: dy·angle 반전 (dx·dist 불변)
+  const ih = frame.inter_hand_features;
+  const flippedIh: number[] | null = ih && ih.length >= 4
+    ? [ih[0], -ih[1], ih[2], -ih[3]]
+    : (ih ?? null);
+
   return {
     ...frame,
-    left_hand: mirrorLandmarks(frame.right_hand),
-    right_hand: mirrorLandmarks(frame.left_hand),
-    left_hand_features: frame.right_hand_features,
-    right_hand_features: frame.left_hand_features,
+    left_hand:           mirrorLandmarks(frame.right_hand),
+    right_hand:          mirrorLandmarks(frame.left_hand),
+    left_hand_features:  flipHandOrientation(frame.right_hand_features),
+    right_hand_features: flipHandOrientation(frame.left_hand_features),
     pose: frame.pose ? frame.pose.map(lm => ({ ...lm, x: 1 - lm.x })) : null,
-    pose_features: frame.pose_features ? flipPoseFeatures(frame.pose_features) : null,
-    face: frame.face ? flipFaceFeatures(frame.face) : null,
+    pose_features:       frame.pose_features ? flipPoseFeatures(frame.pose_features) : null,
+    face:                frame.face ? flipFaceFeatures(frame.face) : null,
+    inter_hand_features: flippedIh,
   };
 }
 
@@ -652,10 +716,11 @@ function compareFrameFeatures(f1: FrameFeatures, f2: FrameFeatures): number {
     }
   };
 
-  add(f1.left_hand_features,  f2.left_hand_features,  10);
-  add(f1.right_hand_features, f2.right_hand_features, 10);
-  add(f1.pose_features,       f2.pose_features,        8); // 손 위치(얼굴/가슴 근처) 핵심
-  add(f1.face,                f2.face,                  1); // 표정은 참고만
+  add(f1.left_hand_features,         f2.left_hand_features,         10);
+  add(f1.right_hand_features,        f2.right_hand_features,        10);
+  add(f1.pose_features,              f2.pose_features,               8); // 손 위치(얼굴/가슴 근처) 핵심
+  add(f1.inter_hand_features ?? null, f2.inter_hand_features ?? null, 3); // 양손 상대 위치
+  add(f1.face,                       f2.face,                        1); // 표정은 참고만
 
   return count > 0 ? total / count : 1.0;
 }
@@ -670,10 +735,11 @@ function computeVelocity(curr: FrameFeatures, prev: FrameFeatures): FrameFeature
     return a.map((v, i) => v - b[i]);
   };
   return {
-    left_hand_features:  diff(curr.left_hand_features,  prev.left_hand_features),
-    right_hand_features: diff(curr.right_hand_features, prev.right_hand_features),
-    face:                diff(curr.face,                prev.face),
-    pose_features:       diff(curr.pose_features,       prev.pose_features),
+    left_hand_features:  diff(curr.left_hand_features,           prev.left_hand_features),
+    right_hand_features: diff(curr.right_hand_features,          prev.right_hand_features),
+    face:                diff(curr.face,                         prev.face),
+    pose_features:       diff(curr.pose_features,                prev.pose_features),
+    inter_hand_features: diff(curr.inter_hand_features ?? null,  prev.inter_hand_features ?? null),
   };
 }
 
@@ -778,10 +844,11 @@ export function resampleSequence(frames: FrameFeatures[], targetLength: number):
     const t = pos - lo;
     const a = frames[lo], b = frames[hi];
     result.push({
-      left_hand_features: lerp(a.left_hand_features, b.left_hand_features, t),
-      right_hand_features: lerp(a.right_hand_features, b.right_hand_features, t),
-      face: lerp(a.face, b.face, t),
-      pose_features: lerp(a.pose_features, b.pose_features, t),
+      left_hand_features:  lerp(a.left_hand_features,          b.left_hand_features,          t),
+      right_hand_features: lerp(a.right_hand_features,         b.right_hand_features,         t),
+      face:                lerp(a.face,                        b.face,                        t),
+      pose_features:       lerp(a.pose_features,               b.pose_features,               t),
+      inter_hand_features: lerp(a.inter_hand_features ?? null, b.inter_hand_features ?? null, t),
     });
   }
   return result;
