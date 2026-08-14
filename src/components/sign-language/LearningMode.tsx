@@ -42,6 +42,7 @@ function makeSpeedVariant(frames: LandmarkFrame[], ratio: number): LandmarkFrame
     left_hand_features: f.left_hand_features,
     right_hand_features: f.right_hand_features,
     pose_features: f.pose_features,
+    inter_hand_features: f.inter_hand_features ?? null,
   }));
 }
 
@@ -203,6 +204,7 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
       left_hand_features: currentLandmarks.leftHandFeatures ?? null,
       right_hand_features: currentLandmarks.rightHandFeatures ?? null,
       pose_features: currentLandmarks.poseFeatures ?? null,
+      inter_hand_features: currentLandmarks.interHandFeatures ?? null,
     };
     recordingFramesRef.current.push(frame);
 

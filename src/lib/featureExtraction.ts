@@ -703,14 +703,17 @@ function compareFrameFeatures(f1: FrameFeatures, f2: FrameFeatures): number {
 
   // 특징 비교 헬퍼:
   //  - 둘 다 있음 → 코사인 유사도 (0~1, clamp)
-  //  - 한쪽만 있음 → 0.3 (약한 패널티) — 감지 노이즈나 일시적 미감지에 관대하게
+  //  - 한쪽만 있음 → (필수) 0.3 약한 패널티 / (선택) 분모에서 제외
   //  - 둘 다 없음 → 분모에서 제외 (패널티 없음)
-  const add = (a: number[] | null, b: number[] | null, w: number) => {
+  // optional=true: inter_hand·face 같은 보조 특징. 구버전(33D) DB 데이터엔
+  //   이 필드가 없으므로, 한쪽만 있다고 감점하면 레거시 수화가 부당하게 낮아진다.
+  //   따라서 양쪽 모두 있을 때만 비교에 반영한다.
+  const add = (a: number[] | null, b: number[] | null, w: number, optional = false) => {
     if (a && b) {
       // 코사인 유사도를 [0,1]로 clamp (음수 방지 — 특히 pose 정규화 좌표에서 발생)
       total += Math.max(0, calculateFeatureSimilarity(a, b)) * w;
       count += w;
-    } else if (a || b) {
+    } else if (!optional && (a || b)) {
       total += 0.3 * w;
       count += w;
     }
@@ -718,9 +721,9 @@ function compareFrameFeatures(f1: FrameFeatures, f2: FrameFeatures): number {
 
   add(f1.left_hand_features,         f2.left_hand_features,         10);
   add(f1.right_hand_features,        f2.right_hand_features,        10);
-  add(f1.pose_features,              f2.pose_features,               8); // 손 위치(얼굴/가슴 근처) 핵심
-  add(f1.inter_hand_features ?? null, f2.inter_hand_features ?? null, 3); // 양손 상대 위치
-  add(f1.face,                       f2.face,                        1); // 표정은 참고만
+  add(f1.pose_features,              f2.pose_features,               8);       // 손 위치(얼굴/가슴 근처) 핵심
+  add(f1.inter_hand_features ?? null, f2.inter_hand_features ?? null, 3, true); // 양손 상대 위치 (선택)
+  add(f1.face,                       f2.face,                        1, true);  // 표정은 참고만 (선택)
 
   return count > 0 ? total / count : 1.0;
 }

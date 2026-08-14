@@ -86,11 +86,12 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       let lhN = 0, rhN = 0, poseN = 0;
       for (const seq of seqs) {
         for (const f of seq) {
-          if (f.left_hand_features?.length === 33) {
-            f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
+          // 33D(구버전)/36D(신버전) 혼용 호환: 공유되는 앞 33차원만 누적
+          if (f.left_hand_features && f.left_hand_features.length >= 33) {
+            for (let i = 0; i < 33; i++) lhAcc[i] += f.left_hand_features[i]; lhN++;
           }
-          if (f.right_hand_features?.length === 33) {
-            f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
+          if (f.right_hand_features && f.right_hand_features.length >= 33) {
+            for (let i = 0; i < 33; i++) rhAcc[i] += f.right_hand_features[i]; rhN++;
           }
           if (f.pose_features?.length === 24) {
             f.pose_features.forEach((v, i) => poseAcc[i] += v); poseN++;
@@ -136,6 +137,7 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
       left_hand_features: currentLandmarks.leftHandFeatures,
       right_hand_features: currentLandmarks.rightHandFeatures,
       pose_features: currentLandmarks.poseFeatures,
+      inter_hand_features: currentLandmarks.interHandFeatures ?? null,
     };
 
     motionBufferRef.current.push(frameData);
@@ -333,11 +335,12 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
         const lhAcc = new Array(33).fill(0), rhAcc = new Array(33).fill(0), poseAcc = new Array(24).fill(0);
         let lhN = 0, rhN = 0, poseN = 0;
         for (const f of cleanBuffer) {
-          if (f.left_hand_features?.length === 33) {
-            f.left_hand_features.forEach((v, i) => lhAcc[i] += v); lhN++;
+          // 33D/36D 혼용 호환: 공유되는 앞 33차원만 누적
+          if (f.left_hand_features && f.left_hand_features.length >= 33) {
+            for (let i = 0; i < 33; i++) lhAcc[i] += f.left_hand_features[i]; lhN++;
           }
-          if (f.right_hand_features?.length === 33) {
-            f.right_hand_features.forEach((v, i) => rhAcc[i] += v); rhN++;
+          if (f.right_hand_features && f.right_hand_features.length >= 33) {
+            for (let i = 0; i < 33; i++) rhAcc[i] += f.right_hand_features[i]; rhN++;
           }
           if (f.pose_features?.length === 24) {
             f.pose_features.forEach((v, i) => poseAcc[i] += v); poseN++;
@@ -388,8 +391,8 @@ export default function RecognitionMode({ currentLandmarks, signs }: Recognition
 
       results.sort((a, b) => b.similarity - a.similarity);
 
-      // 디버그: 상위 점수 콘솔 출력 (개발 확인용)
-      if (results.length > 0) {
+      // 디버그: 상위 점수 콘솔 출력 (개발 확인용) — 프로덕션 빌드에서는 제거
+      if (import.meta.env.DEV && results.length > 0) {
         console.log('[Recognition]', results.slice(0, 3).map(r => `${r.sign.name}:${r.similarity.toFixed(1)}%`).join(' | '));
       }
 
