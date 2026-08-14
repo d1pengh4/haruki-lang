@@ -197,9 +197,11 @@ export default function LearningMode({ signs, onSaved }: LearningModeProps) {
     const timestamp = Date.now() - startTimeRef.current;
     const frame: LandmarkFrame = {
       timestamp,
-      pose: currentLandmarks.pose ?? null,
-      left_hand: currentLandmarks.leftHand ?? null,
-      right_hand: currentLandmarks.rightHand ?? null,
+      // raw 랜드마크(pose/left_hand/right_hand)는 저장하지 않는다 — 인식은 feature
+      // 벡터만 사용하며, raw까지 저장하면 행당 수 MB로 커져 조회 timeout을 유발한다.
+      pose: null,
+      left_hand: null,
+      right_hand: null,
       face: currentLandmarks.face ?? null,
       left_hand_features: currentLandmarks.leftHandFeatures ?? null,
       right_hand_features: currentLandmarks.rightHandFeatures ?? null,

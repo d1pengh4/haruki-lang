@@ -28,22 +28,48 @@ export const base44 = {
       },
 
       // 전체 데이터 조회 (landmarks_sequence 포함, 인식용)
+      // ⚠️ landmarks_sequence는 행당 수 MB라 select('*') 일괄 조회는 PostgREST
+      // statement timeout(57014, HTTP 500)을 유발한다. → id만 먼저 받고 행별로
+      // 병렬(동시성 제한) 조회해 각 요청을 작게 유지한다.
       list: async (sort = '-created_at'): Promise<SignLanguage[]> => {
         // '-created_at' -> { column: 'created_at', ascending: false }
         const isDescending = sort.startsWith('-')
         const column = isDescending ? sort.slice(1) : sort
 
-        const { data, error } = await supabase
+        // 1) id 목록만 먼저 조회 (경량)
+        const { data: idRows, error: idErr } = await supabase
           .from('sign_languages')
-          .select('*')
+          .select('id')
           .order(column, { ascending: !isDescending })
-
-        if (error) {
-          console.error('수화 목록 조회 오류:', error)
-          throw new Error(`수화 목록 조회 실패: ${error.message}`)
+        if (idErr) {
+          console.error('수화 목록 조회 오류:', idErr)
+          throw new Error(`수화 목록 조회 실패: ${idErr.message}`)
         }
+        const ids = (idRows || []).map(r => r.id)
 
-        return data || []
+        // 2) 행별로 전체 조회 (statement timeout 회피, 동시성 제한)
+        const CONCURRENCY = 4
+        const results: SignLanguage[] = new Array(ids.length)
+        let cursor = 0
+        const worker = async () => {
+          while (cursor < ids.length) {
+            const i = cursor++
+            const { data, error } = await supabase
+              .from('sign_languages')
+              .select('*')
+              .eq('id', ids[i])
+              .single()
+            if (error) {
+              console.error('수화 상세 조회 오류:', error)
+              throw new Error(`수화 상세 조회 실패: ${error.message}`)
+            }
+            results[i] = data
+          }
+        }
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker)
+        )
+        return results.filter(Boolean)
       },
 
       /**

@@ -68,3 +68,6 @@ scripts/batch_failed.json
 .agents/
 skills-lock.json
 GEMINI.md
+
+# DB 백업 (대용량, 커밋 제외)
+backups/
