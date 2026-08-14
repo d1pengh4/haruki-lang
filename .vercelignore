@@ -2,6 +2,9 @@
 02/
 17/
 
+# DB 백업 (대용량, 배포 불필요)
+backups/
+
 # Development files
 node_modules/
 .git/
